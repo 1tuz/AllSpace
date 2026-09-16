@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>srelens · DevOps Context</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+  <aside class="rail"><div class="mark">sr</div><button class="cluster active">PE</button><button class="cluster">ST</button><span class="rail-spacer"></span><button class="icon">⌘</button><button class="icon">⚙</button></aside>
+  <aside class="sidebar">
+    <header><strong>prod-eu</strong><span class="live">● connected</span></header>
+    <nav><small>CONTEXT</small><button class="selected">⌁ Mission control <b>3</b></button><button>◎ My work</button><button>↗ Deployments</button><small>KUBERNETES</small><button>◫ Workloads</button><button>▦ Pods</button><button>◇ Events</button><small>INTEGRATIONS</small><button>Bitbucket <i>online</i></button><button>Jenkins <i>online</i></button><button>Jira <i>online</i></button></nav>
+    <footer><kbd>⌘K</kbd> Search & commands</footer>
+  </aside>
+  <main>
+    <header class="top"><div><h1>Mission control</h1><p>Correlated delivery context · prod-eu</p></div><div class="health"><span class="pulse"></span>All sources synced <button id="refresh">Refresh</button></div></header>
+    <section class="summary"><article><small>MY WORK</small><strong id="work-count">0</strong><span>active tickets</span></article><article><small>WAITING</small><strong>1</strong><span>review requested</span></article><article><small>DELIVERY</small><strong>2</strong><span>healthy builds</span></article><article><small>PRODUCTION</small><strong>5/5</strong><span>replicas ready</span></article></section>
+    <div class="workspace"><section class="missions"><div class="section-title"><div><h2>Units of work</h2><p>Jira → Bitbucket → Jenkins → Kubernetes</p></div><input id="search" placeholder="Filter tickets, PRs, workloads…"></div><div id="mission-list"></div></section><aside class="detail" id="detail"></aside></div>
+  </main>
+  <dialog id="palette"><form method="dialog"><input autofocus placeholder="Type a command or search…"><button>Trace OPS-142</button><button>Open prod deployment</button><button>Show failed builds</button><button>Ask agent for stand-up</button></form></dialog>
+  <script type="module" src="app.js"></script>
+</body></html>

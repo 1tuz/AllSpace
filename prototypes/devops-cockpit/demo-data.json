@@ -1,0 +1,19 @@
+{
+  "issues": [
+    { "key": "OPS-142", "summary": "Move payment retries to idempotent worker", "status": "In Progress", "assignee": "You", "updated": "8m" },
+    { "key": "PLAT-87", "summary": "Reduce checkout API startup time", "status": "Review", "assignee": "You", "updated": "24m" },
+    { "key": "OPS-139", "summary": "Rotate legacy queue credentials", "status": "Blocked", "assignee": "You", "updated": "1h" }
+  ],
+  "pullRequests": [
+    { "id": 482, "title": "OPS-142 idempotent payment retry worker", "branch": "feature/OPS-142-retry-worker", "commit": "92ac41f7d2ab", "state": "merged", "review": "approved", "author": "you" },
+    { "id": 479, "title": "PLAT-87 lazy client initialization", "branch": "feature/PLAT-87-startup", "commit": "55f93a0ce119", "state": "open", "review": "needs-review", "author": "you" }
+  ],
+  "builds": [
+    { "number": 9182, "job": "payments-api/main", "commit": "92ac41f7d2ab", "status": "success", "duration": "6m 14s", "images": ["registry.local/payments-api:92ac41f"] },
+    { "number": 9174, "job": "checkout-api/PR-479", "commit": "55f93a0ce119", "status": "success", "duration": "4m 02s", "images": ["registry.local/checkout-api:55f93a0"] }
+  ],
+  "workloads": [
+    { "cluster": "prod-eu", "namespace": "payments", "kind": "Deployment", "name": "payments-api", "environment": "production", "image": "registry.local/payments-api:92ac41f", "commit": "92ac41f7d2ab", "ready": 5, "desired": 5, "updated": "3m" },
+    { "cluster": "staging", "namespace": "checkout", "kind": "Deployment", "name": "checkout-api", "environment": "staging", "image": "registry.local/checkout-api:55f93a0", "commit": "55f93a0ce119", "ready": 2, "desired": 2, "updated": "17m" }
+  ]
+}

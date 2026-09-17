@@ -42,6 +42,101 @@ pub struct ListDeploymentsOut {
     pub deployments: Vec<DeploymentSummary>,
 }
 
+/// Read-only runtime join input. `images` are OCI references derived from a
+/// delivery trace; `namespaces` is optional and never broadens a caller's RBAC.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ListDeploymentsByImageIn {
+    pub context: String,
+    pub images: Vec<String>,
+    #[serde(default)]
+    pub namespaces: Vec<String>,
+}
+
+/// The minimum runtime evidence needed by the delivery correlation layer.
+/// Values are only workload metadata and image references — never manifests,
+/// environment, or Secret data.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentImageMatch {
+    pub name: String,
+    pub namespace: String,
+    pub ready: String,
+    pub images: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ListDeploymentsByImageOut {
+    pub deployments: Vec<DeploymentImageMatch>,
+}
+
+fn deployment_images(deployment: &Deployment) -> Vec<String> {
+    deployment
+        .spec
+        .as_ref()
+        .and_then(|spec| spec.template.spec.as_ref())
+        .map(|spec| {
+            spec.containers
+                .iter()
+                .chain(spec.init_containers.iter().flatten())
+                .filter_map(|container| container.image.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn deployment_image_match(deployment: &Deployment, images: &[String]) -> Option<DeploymentImageMatch> {
+    let matched: Vec<String> = deployment_images(deployment)
+        .into_iter()
+        .filter(|image| images.iter().any(|candidate| candidate == image))
+        .collect();
+    if matched.is_empty() {
+        return None;
+    }
+    let summary = summarise(deployment.clone());
+    Some(DeploymentImageMatch {
+        name: summary.name,
+        namespace: summary.namespace,
+        ready: summary.ready,
+        images: matched,
+    })
+}
+
+/// `k8s.listDeploymentsByImage` — find live Deployments whose pod templates
+/// use one of the trace's OCI image references. This is deliberately an
+/// explicit context-scoped fan-out; it never picks a cluster implicitly.
+pub fn list_deployments_by_image_capability(cache: Arc<ClientCache>) -> Capability {
+    Capability::typed::<ListDeploymentsByImageIn, ListDeploymentsByImageOut, _, _>(
+        "k8s.listDeploymentsByImage",
+        "list deployments in one connected kube context that use supplied OCI image references",
+        Annotations::READ_ONLY,
+        move |input: ListDeploymentsByImageIn| {
+            let cache = cache.clone();
+            async move {
+                if input.images.is_empty() {
+                    return Ok(ListDeploymentsByImageOut { deployments: vec![] });
+                }
+                let client = cache
+                    .get(&input.context)
+                    .await
+                    .map_err(CapabilityError::Handler)?;
+                let api: Api<Deployment> = Api::all(client);
+                let list = tokio::time::timeout(request_timeout(), api.list(&ListParams::default()))
+                    .await
+                    .map_err(|_| CapabilityError::Handler("list deployments by image timed out".into()))?
+                    .map_err(|error| CapabilityError::Handler(error.to_string()))?;
+                let deployments = list
+                    .items
+                    .iter()
+                    .filter(|deployment| input.namespaces.is_empty() || deployment.metadata.namespace.as_ref().is_some_and(|namespace| input.namespaces.contains(namespace)))
+                    .filter_map(|deployment| deployment_image_match(deployment, &input.images))
+                    .collect();
+                Ok(ListDeploymentsByImageOut { deployments })
+            }
+        },
+    )
+}
+
 pub(crate) fn summarise(dep: Deployment) -> DeploymentSummary {
     let name = dep.metadata.name.clone().unwrap_or_default();
     let namespace = dep.metadata.namespace.clone().unwrap_or_default();
@@ -195,6 +290,7 @@ mod tests {
     use k8s_openapi::api::apps::v1::{
         DeploymentSpec, DeploymentStatus, ReplicaSetSpec, ReplicaSetStatus,
     };
+    use k8s_openapi::api::core::v1::{Container, PodSpec, PodTemplateSpec};
     use std::path::PathBuf;
 
     #[test]
@@ -227,6 +323,33 @@ mod tests {
         assert_eq!(s.ready, "2/3");
         assert_eq!(s.up_to_date, 3);
         assert_eq!(s.available, 2);
+    }
+
+    #[test]
+    fn finds_deployment_by_container_or_init_container_image() {
+        let deployment = Deployment {
+            metadata: kube::core::ObjectMeta {
+                name: Some("payments-api".into()),
+                namespace: Some("payments".into()),
+                ..Default::default()
+            },
+            spec: Some(DeploymentSpec {
+                template: PodTemplateSpec {
+                    spec: Some(PodSpec {
+                        containers: vec![Container { image: Some("registry.example/payments:v42".into()), ..Default::default() }],
+                        init_containers: Some(vec![Container { image: Some("registry.example/migrate@sha256:abc".into()), ..Default::default() }]),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let result = deployment_image_match(&deployment, &["registry.example/migrate@sha256:abc".into()]);
+        assert_eq!(result.as_ref().map(|match_| match_.name.as_str()), Some("payments-api"));
+        assert_eq!(result.map(|match_| match_.images), Some(vec!["registry.example/migrate@sha256:abc".into()]));
     }
 
     fn replicaset(name: &str, owner: &str, revision: &str) -> ReplicaSet {

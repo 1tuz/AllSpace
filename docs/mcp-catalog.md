@@ -5,11 +5,11 @@
 
 Everything this server exposes over MCP, generated from the live registry so it cannot drift. Written for someone wiring an agent to srelens; the narrative reference is [MCP.md](MCP.md).
 
-## Tools (120)
+## Tools (121)
 
 Argument schemas are not reproduced here — call `tools/list` for those, which cannot go stale.
 
-### Kubernetes — read-only (58)
+### Kubernetes — read-only (59)
 
 | Tool | Summary |
 | --- | --- |
@@ -30,6 +30,7 @@ Argument schemas are not reproduced here — call `tools/list` for those, which 
 | `k8s.listCustomResource` | list instances of a custom resource by group/version/plural |
 | `k8s.listDaemonSets` | list DaemonSets in a namespace of a connected kube context |
 | `k8s.listDeployments` | list deployments in a namespace of a connected kube context |
+| `k8s.listDeploymentsByImage` | list deployments in one connected kube context that use supplied OCI image references |
 | `k8s.listEndpointSlices` | list EndpointSlices in a namespace of a connected kube context |
 | `k8s.listEvents` | list events in a connected kube context |
 | `k8s.listIngresses` | list Ingresses in a namespace of a connected kube context |

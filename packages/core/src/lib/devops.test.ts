@@ -96,6 +96,19 @@ describe("devops lib", () => {
     expect(trace.edges.map((edge) => edge.relation)).toEqual(["implements"]);
   });
 
+  it("scopes the optional Kubernetes fan-out and keeps that trace cache separate", async () => {
+    vi.mocked(invokeCapability).mockResolvedValue(emptyTrace);
+    await devopsTraceDelivery("OPS-142", { kubeContext: "prod-eu", namespaces: ["payments"] });
+    await devopsTraceDelivery("OPS-142", { kubeContext: "staging", namespaces: ["payments"] });
+
+    expect(invokeCapability).toHaveBeenCalledWith("devops.traceDelivery", {
+      issueKey: "OPS-142",
+      kubeContext: "prod-eu",
+      namespaces: ["payments"],
+    });
+    expect(vi.mocked(invokeCapability).mock.calls.filter((call) => call[0] === "devops.traceDelivery")).toHaveLength(2);
+  });
+
   it("falls back to the fixture capability when the live join returns no nodes", async () => {
     vi.mocked(invokeCapability)
       .mockResolvedValueOnce({ nodes: [], edges: [], situations: [], partial: true, sourceErrors: [{ source: "jira", message: "no profile" }] })

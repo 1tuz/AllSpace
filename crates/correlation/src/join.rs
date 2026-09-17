@@ -78,8 +78,16 @@ pub fn join_delivery_trace(issue_key: &str, bundles: DeliveryBundles) -> Trace {
         }
     }
 
-    let workloads = bundles.workloads;
-    let deploy_edges = match_artifacts_to_workloads(&artifacts, &workloads);
+    let all_workloads = bundles.workloads;
+    let deploy_edges = match_artifacts_to_workloads(&artifacts, &all_workloads);
+    // A scoped Kubernetes fan-out can see deployments for images from other
+    // builds. Only retain workloads that the selected delivery artifacts
+    // actually linked to; never render a cluster fact as part of this issue
+    // without evidence.
+    let workloads: Vec<Entity> = all_workloads
+        .into_iter()
+        .filter(|workload| deploy_edges.iter().any(|edge| edge.to == workload.id))
+        .collect();
 
     let mut nodes = Vec::new();
     if let Some(issue) = issue.clone() {
@@ -237,7 +245,7 @@ fn synthesize_artifacts_from_builds(builds: &[Entity]) -> (Vec<Entity>, Vec<Edge
     (artifacts, edges)
 }
 
-fn build_image_ref(build: &Entity) -> Option<String> {
+pub(crate) fn build_image_ref(build: &Entity) -> Option<String> {
     let image = attr_str(build, "image");
     let tag = attr_str(build, "imageTag").or_else(|| attr_str(build, "tag"));
     let digest = attr_str(build, "digest");
@@ -245,7 +253,12 @@ fn build_image_ref(build: &Entity) -> Option<String> {
         return None;
     }
     if let Some(image) = image {
-        if image.contains('@') || (image.contains(':') && image.rsplit_once(':').is_some_and(|(_, t)| !t.is_empty())) {
+        // A colon before the final slash is a registry port, not an image tag.
+        let has_tag = image
+            .rsplit_once('/')
+            .map(|(_, last)| last.contains(':'))
+            .unwrap_or_else(|| image.contains(':'));
+        if image.contains('@') || has_tag {
             return Some(image.to_owned());
         }
         if let Some(digest) = digest {
@@ -681,5 +694,20 @@ mod tests {
         assert!(trace.edges.iter().any(|edge| {
             edge.relation == Relation::Produces && edge.confidence == Confidence::Strong
         }));
+    }
+
+    #[test]
+    fn adds_tag_after_a_registry_port() {
+        let build = entity(
+            "build:1",
+            EntityKind::Build,
+            Source::Jenkins,
+            "build",
+            json!({ "image": "registry.example:5000/payments", "tag": "v42" }),
+        );
+        assert_eq!(
+            build_image_ref(&build).as_deref(),
+            Some("registry.example:5000/payments:v42"),
+        );
     }
 }

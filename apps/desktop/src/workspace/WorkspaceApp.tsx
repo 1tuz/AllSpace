@@ -1,8 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, ExternalLink } from "lucide-react";
-import { devopsTraceDelivery, listContexts, type ClusterContext, type DevOpsTrace } from "@srelens/core";
+import {
+  devopsTraceDelivery,
+  listContexts,
+  RESOURCE_LABELS,
+  type ClusterContext,
+  type DevOpsTrace,
+  type ResourceKind,
+} from "@srelens/core";
 import { Button, Combobox, TextInput } from "../ui";
 import { DevOpsSettingsSection } from "../components/DevOpsSettingsSection";
+import { Dock, type DockKind, type DockSession } from "../components/Dock";
+import { ResourceBrowser } from "../components/ResourceBrowser";
 import {
   FIXTURE_CONNECTIONS,
   FIXTURE_DELIVERIES,
@@ -66,6 +75,7 @@ export function WorkspaceApp({
   });
   const [deliveryFilter, setDeliveryFilter] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [runtimeFocus, setRuntimeFocus] = useState<RuntimeHandoff | null>(null);
 
   function openDelivery(id: string) {
     setRoute({ name: "delivery", id });
@@ -148,17 +158,14 @@ export function WorkspaceApp({
             delivery={deliveryById(route.id)}
             onBack={() => setRoute({ name: "deliveries" })}
             onExploreRuntime={(target) => {
-              if (onOpenClassicIde && target) {
-                onOpenClassicIde(target);
-                return;
-              }
+              setRuntimeFocus(target);
               setRoute({ name: "kubernetes" });
             }}
           />
         )}
         {route.name === "connections" && <ConnectionsScreen />}
         {route.name === "settings" && <SettingsScreen onOpenClassicIde={onOpenClassicIde} />}
-        {route.name === "kubernetes" && <KubernetesExplorerScreen onOpenClassicIde={onOpenClassicIde} />}
+        {route.name === "kubernetes" && <KubernetesExplorerScreen focus={runtimeFocus} />}
       </div>
     </div>
   );
@@ -564,10 +571,32 @@ function SettingsScreen({ onOpenClassicIde }: { onOpenClassicIde?: (target?: Run
   );
 }
 
-function KubernetesExplorerScreen({ onOpenClassicIde }: { onOpenClassicIde?: (target?: RuntimeHandoff) => void }) {
+const EXPLORER_KINDS: ResourceKind[] = [
+  "pods",
+  "deployments",
+  "statefulsets",
+  "daemonsets",
+  "replicasets",
+  "jobs",
+  "cronjobs",
+  "services",
+  "configmaps",
+  "events",
+];
+
+function explorerKind(kind: string | undefined): ResourceKind {
+  return kind && EXPLORER_KINDS.includes(kind as ResourceKind) ? (kind as ResourceKind) : "deployments";
+}
+
+function KubernetesExplorerScreen({ focus }: { focus: RuntimeHandoff | null }) {
   const [contexts, setContexts] = useState<ClusterContext[] | null>(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState("");
+  const [kind, setKind] = useState<ResourceKind>(() => explorerKind(focus?.kind));
+  const [dockSessions, setDockSessions] = useState<DockSession[]>([]);
+  const [activeDock, setActiveDock] = useState<number | null>(null);
+  const [dockHeight, setDockHeight] = useState(300);
+  const dockId = useRef(1);
 
   useEffect(() => {
     let active = true;
@@ -587,10 +616,32 @@ function KubernetesExplorerScreen({ onOpenClassicIde }: { onOpenClassicIde?: (ta
     };
   }, []);
 
+  useEffect(() => {
+    if (!focus) return;
+    setSelected(focus.context);
+    setKind(explorerKind(focus.kind));
+  }, [focus]);
+
   const options = (contexts ?? []).map((c) => ({ value: c.name, label: c.name }));
+  const kindOptions = EXPLORER_KINDS.map((value) => ({ value, label: RESOURCE_LABELS[value] }));
+  const browserFocus = focus && focus.context === selected && explorerKind(focus.kind) === kind
+    ? { name: focus.name, namespace: focus.namespace || null, nonce: 1 }
+    : undefined;
+  function openDock(kind: DockKind, session: Omit<DockSession, "id" | "kind">) {
+    const id = dockId.current++;
+    setDockSessions((current) => [...current, { id, kind, ...session }]);
+    setActiveDock(id);
+  }
+  function closeDockTab(id: number) {
+    setDockSessions((current) => {
+      const remaining = current.filter((session) => session.id !== id);
+      setActiveDock((active) => (active === id ? (remaining.at(-1)?.id ?? null) : active));
+      return remaining;
+    });
+  }
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-auto" data-testid="kubernetes-explorer">
+    <main className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="kubernetes-explorer">
       <header className="border-b border-border px-6 py-5">
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Kubernetes</p>
         <h1 className="mt-1 text-xl font-semibold">Explorer</h1>
@@ -598,13 +649,20 @@ function KubernetesExplorerScreen({ onOpenClassicIde }: { onOpenClassicIde?: (ta
           Secondary mode. Cluster selection lives here — not as global app state. AppFarm contexts use
           kubectl oidc-login: expired tokens open the system browser for Keycloak (often daily).
         </p>
-        <div className="mt-4 max-w-md">
+        <div className="mt-4 flex max-w-2xl flex-wrap gap-2">
           <Combobox
             ariaLabel="Cluster context"
             placeholder={contexts === null ? "Loading contexts…" : "Select a context"}
             options={options}
             value={selected}
             onValueChange={setSelected}
+          />
+          <Combobox
+            ariaLabel="Resource kind"
+            placeholder="Resource kind"
+            options={kindOptions}
+            value={kind}
+            onValueChange={(value) => setKind(explorerKind(value))}
           />
         </div>
         {error && (
@@ -617,19 +675,33 @@ function KubernetesExplorerScreen({ onOpenClassicIde }: { onOpenClassicIde?: (ta
         )}
         {selected && <p className="mt-3 text-sm">Selected context: <span className="font-mono">{selected}</span></p>}
       </header>
-      <div className="px-6 py-5">
-        <p className="text-sm text-muted-foreground">
-          Full resource browsers mount here later. Delivery Trace → Explore opens the classic IDE focused on the
-          runtime workload (Deployments / Logs / Shell / YAML via that surface).
-        </p>
-        {onOpenClassicIde && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => onOpenClassicIde()}>
-              Open classic IDE{selected ? ` (then pick ${selected})` : ""}
-            </Button>
-          </div>
-        )}
-      </div>
+      {selected ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ResourceBrowser
+            context={selected}
+            kind={kind}
+            focus={browserFocus}
+            onOpenTerminal={(session) => openDock("terminal", session)}
+            onOpenLogs={(session) => openDock("logs", session)}
+            onOpenWorkloadLogs={(session) => openDock("logs", { ...session, workload: { kind: session.kind, name: session.name } })}
+          />
+          {dockSessions.length > 0 && (
+            <Dock
+              sessions={dockSessions}
+              activeId={activeDock}
+              height={dockHeight}
+              onActivate={setActiveDock}
+              onCloseTab={closeDockTab}
+              onClose={() => { setDockSessions([]); setActiveDock(null); }}
+              onResize={setDockHeight}
+            />
+          )}
+        </div>
+      ) : (
+        <div className="px-6 py-5">
+          <p className="text-sm text-muted-foreground">Select a context to browse workloads, YAML, logs, and in-pod shells.</p>
+        </div>
+      )}
     </main>
   );
 }

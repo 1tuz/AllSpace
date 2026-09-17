@@ -291,6 +291,9 @@ pub fn build_registry_with_paths_and_settings(
     reg.register(srelens_kube::deployments::list_deployments_capability(
         cache.clone(),
     ));
+    reg.register(srelens_kube::deployments::list_deployments_by_image_capability(
+        cache.clone(),
+    ));
     reg.register(srelens_kube::deployments::list_replicasets_capability(
         cache.clone(),
     ));
@@ -535,6 +538,10 @@ pub fn build_registry_with_paths_and_settings(
             jenkins_builds: reg
                 .get("jenkins.listBuilds")
                 .expect("jenkins.listBuilds registered")
+                .clone(),
+            kube_deployments_by_image: reg
+                .get("k8s.listDeploymentsByImage")
+                .expect("k8s.listDeploymentsByImage registered")
                 .clone(),
         };
         reg.register(srelens_correlation::trace_delivery_capability(delivery_sources));

@@ -10,6 +10,30 @@ vi.mock("@srelens/core", async (importOriginal) => ({
   devopsTraceDelivery,
 }));
 
+vi.mock("../components/ResourceBrowser", () => ({
+  ResourceBrowser: ({ context, kind, focus, onOpenWorkloadLogs, onOpenTerminal }: {
+    context: string;
+    kind: string;
+    focus?: { name: string; namespace: string | null };
+    onOpenWorkloadLogs?: (value: { context: string; namespace: string; kind: string; name: string }) => void;
+    onOpenTerminal?: (value: { context: string; namespace: string; pod: string }) => void;
+  }) => (
+    <div data-testid="resource-browser">
+      {context}/{kind}/{focus?.namespace ?? ""}/{focus?.name ?? ""}
+      <button onClick={() => onOpenWorkloadLogs?.({ context, namespace: "payments", kind: "Deployment", name: "payments-api" })}>Open workload logs</button>
+      <button onClick={() => onOpenTerminal?.({ context, namespace: "payments", pod: "payments-api-1" })}>Open pod shell</button>
+    </div>
+  ),
+}));
+
+vi.mock("../components/Dock", () => ({
+  Dock: ({ sessions }: { sessions: Array<{ kind: string; pod?: string; workload?: { kind: string; name: string } }> }) => (
+    <div data-testid="workspace-dock">
+      {sessions.map((session, index) => <span key={index}>{session.pod ?? `${session.workload?.kind}/${session.workload?.name}`}</span>)}
+    </div>
+  ),
+}));
+
 import { WorkspaceApp } from "./WorkspaceApp";
 import { FIRST_RUN_KEY } from "./nav";
 import { APPFARM_DELIVERY, KOMUS_DELIVERY, homeSections } from "./fixtures";
@@ -103,5 +127,16 @@ describe("WorkspaceApp", () => {
   it("offers Explore in Kubernetes on a runtime node", () => {
     render(<WorkspaceApp initialRoute={{ name: "delivery", id: APPFARM_DELIVERY.id }} />);
     expect(screen.getByRole("button", { name: /Explore in Kubernetes/ })).toBeDefined();
+  });
+
+  it("keeps Explore inside the workspace and focuses the runtime workload", async () => {
+    render(<WorkspaceApp initialRoute={{ name: "delivery", id: APPFARM_DELIVERY.id }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Explore in Kubernetes/ }));
+    expect(await screen.findByTestId("kubernetes-explorer")).toBeDefined();
+    expect((await screen.findByTestId("resource-browser")).textContent).toContain("prod-eu/deployments/payments/payments-api");
+    fireEvent.click(screen.getByRole("button", { name: "Open workload logs" }));
+    expect((await screen.findByTestId("workspace-dock")).textContent).toContain("Deployment/payments-api");
+    fireEvent.click(screen.getByRole("button", { name: "Open pod shell" }));
+    expect(screen.getByTestId("workspace-dock").textContent).toContain("payments-api-1");
   });
 });

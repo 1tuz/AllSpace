@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use srelens_capability::{Annotations, Capability};
 use srelens_devops_model::{Entity, Source, SourceError, Trace};
 
-use crate::join::{join_delivery_trace, DeliveryBundles};
+use crate::join::{build_image_ref, join_delivery_trace, DeliveryBundles};
 
 /// Sibling read capabilities the live delivery trace fans out to. Each adapter
 /// stays registered on its own; this capability only joins what they return.
@@ -17,12 +17,19 @@ pub struct DeliverySourceCaps {
     pub bitbucket_prs: Capability,
     pub bitbucket_commits: Capability,
     pub jenkins_builds: Capability,
+    pub kube_deployments_by_image: Capability,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct TraceDeliveryIn {
     pub issue_key: String,
+    /// Runtime fan-out is opt-in: callers must name one kube context rather
+    /// than letting a delivery trace guess where it was deployed.
+    #[serde(default)]
+    pub kube_context: Option<String>,
+    #[serde(default)]
+    pub namespaces: Vec<String>,
 }
 
 /// `devops.traceDelivery` — live join across configured DevOps sources.
@@ -37,12 +44,13 @@ pub fn trace_delivery_capability(sources: DeliverySourceCaps) -> Capability {
         Annotations::READ_ONLY,
         move |input| {
             let sources = sources.clone();
-            async move { Ok(trace_delivery_live(&sources, &input.issue_key).await) }
+            async move { Ok(trace_delivery_live(&sources, &input).await) }
         },
     )
 }
 
-async fn trace_delivery_live(sources: &DeliverySourceCaps, issue_key: &str) -> Trace {
+async fn trace_delivery_live(sources: &DeliverySourceCaps, input: &TraceDeliveryIn) -> Trace {
+    let issue_key = &input.issue_key;
     let mut bundles = DeliveryBundles::default();
 
     match call_entities(
@@ -115,6 +123,28 @@ async fn trace_delivery_live(sources: &DeliverySourceCaps, issue_key: &str) -> T
         Err(error) => push_unique(&mut bundles.source_errors, error),
     }
 
+    // A Kubernetes call is only made when a caller explicitly scopes it. The
+    // join later keeps only workloads actually matched to the issue's artifacts.
+    if let Some(context) = input.kube_context.as_deref().filter(|context| !context.trim().is_empty()) {
+        let images = bundles
+            .builds
+            .iter()
+            .filter_map(build_image_ref)
+            .collect::<Vec<_>>();
+        if !images.is_empty() {
+            match call_workloads(
+                &sources.kube_deployments_by_image,
+                json!({ "context": context, "images": images, "namespaces": input.namespaces }),
+                context,
+            )
+            .await
+            {
+                Ok(workloads) => bundles.workloads.extend(workloads),
+                Err(error) => push_unique(&mut bundles.source_errors, error),
+            }
+        }
+    }
+
     join_delivery_trace(issue_key, bundles)
 }
 
@@ -141,6 +171,54 @@ async fn call_entities(
         source,
         message: error.to_string(),
     })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeploymentImageMatch {
+    name: String,
+    namespace: String,
+    ready: String,
+    images: Vec<String>,
+}
+
+async fn call_workloads(
+    capability: &Capability,
+    input: Value,
+    context: &str,
+) -> Result<Vec<Entity>, SourceError> {
+    let value = (capability.handler)(input).await.map_err(|error| SourceError {
+        source: Source::Kubernetes,
+        message: error.to_string(),
+    })?;
+    let deployments: Vec<DeploymentImageMatch> = serde_json::from_value(
+        value.get("deployments").cloned().ok_or_else(|| SourceError {
+            source: Source::Kubernetes,
+            message: "response missing deployments".into(),
+        })?,
+    )
+    .map_err(|error| SourceError {
+        source: Source::Kubernetes,
+        message: error.to_string(),
+    })?;
+    Ok(deployments
+        .into_iter()
+        .map(|deployment| Entity {
+            id: format!("runtime:{context}/{}/{}", deployment.namespace, deployment.name),
+            kind: srelens_devops_model::EntityKind::Workload,
+            source: Source::Kubernetes,
+            title: format!("Deployment {}/{}", deployment.namespace, deployment.name),
+            url: None,
+            attributes: json!({
+                "cluster": context,
+                "kind": "Deployment",
+                "namespace": deployment.namespace,
+                "name": deployment.name,
+                "ready": deployment.ready,
+                "images": deployment.images,
+            }),
+        })
+        .collect())
 }
 
 fn push_unique(errors: &mut Vec<SourceError>, error: SourceError) {

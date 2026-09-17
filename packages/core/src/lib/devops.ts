@@ -57,6 +57,12 @@ const TRACE_TTL_MS = 30_000;
 
 type TraceCacheEntry = { at: number; value: Promise<DevOpsTrace> };
 
+/** Explicit read-only runtime scope for the live delivery → Kubernetes join. */
+export interface DevOpsRuntimeScope {
+  kubeContext: string;
+  namespaces?: string[];
+}
+
 /** Module-level TTL cache for live delivery traces — cleared on profile switch. */
 const traceDeliveryCache = new Map<string, TraceCacheEntry>();
 
@@ -101,14 +107,18 @@ export function devopsCredentialStatus(): Promise<DevOpsCredentialRef[]> {
 }
 
 /** Live join across configured DevOps sources. Join and evidence live in the backend. */
-export function devopsTraceDelivery(issueKey: string): Promise<DevOpsTrace> {
+export function devopsTraceDelivery(issueKey: string, scope?: DevOpsRuntimeScope): Promise<DevOpsTrace> {
   const now = Date.now();
-  const hit = traceDeliveryCache.get(issueKey);
+  const runtimeScope = scope?.kubeContext
+    ? { kubeContext: scope.kubeContext, namespaces: scope.namespaces ?? [] }
+    : undefined;
+  const cacheKey = `${issueKey}\u0000${runtimeScope?.kubeContext ?? ""}\u0000${runtimeScope?.namespaces.join("\u0001") ?? ""}`;
+  const hit = traceDeliveryCache.get(cacheKey);
   if (hit && now - hit.at < TRACE_TTL_MS) {
     return hit.value;
   }
-  const value = invokeCapability<DevOpsTrace>("devops.traceDelivery", { issueKey });
-  traceDeliveryCache.set(issueKey, { at: now, value });
+  const value = invokeCapability<DevOpsTrace>("devops.traceDelivery", { issueKey, ...runtimeScope });
+  traceDeliveryCache.set(cacheKey, { at: now, value });
   return value;
 }
 

@@ -420,6 +420,13 @@
     "sensitive": false
   },
   {
+    "id": "k8s.listDeploymentsByImage",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
     "id": "k8s.listEndpointSlices",
     "readOnly": true,
     "destructive": false,

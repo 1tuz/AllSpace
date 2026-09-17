@@ -97,6 +97,25 @@ fn size_main_window(app: &tauri::App) {
     let _ = window.center();
 }
 
+/// Use AppKit's material behind the WebView on macOS. The frontend remains
+/// responsible for opaque content and reduced-transparency fallback; this is
+/// deliberately best-effort so a platform effect can never block startup.
+#[cfg(target_os = "macos")]
+fn apply_macos_vibrancy(app: &tauri::App) {
+    use tauri::window::{Effect, EffectState, EffectsBuilder};
+
+    if let Some(window) = app.get_webview_window("main") {
+        if let Err(error) = window.set_effects(
+            EffectsBuilder::new()
+                .effect(Effect::Sidebar)
+                .state(EffectState::FollowsWindowActiveState)
+                .build(),
+        ) {
+            log::warn!("could not apply macOS window vibrancy: {error}");
+        }
+    }
+}
+
 /// Menu id for the custom "Close Tab" item. macOS routes Cmd+W to this instead
 /// of the predefined "Close Window", so the frontend can close the active tab.
 #[cfg(target_os = "macos")]
@@ -337,7 +356,10 @@ pub fn run() {
             #[cfg(desktop)]
             deep_link::register_deep_links(app);
             #[cfg(target_os = "macos")]
-            install_macos_menu(app)?;
+            {
+                apply_macos_vibrancy(app);
+                install_macos_menu(app)?;
+            }
 
             // Best-effort: remove stale helm temp files (kubeconfig/values) left
             // behind by a crashed/killed prior run so they don't accumulate.

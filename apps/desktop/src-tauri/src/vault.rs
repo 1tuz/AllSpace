@@ -30,6 +30,7 @@ use std::sync::Mutex;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use serde::{Deserialize, Serialize};
+use srelens_devops_profiles::{Credential, CredentialError, CredentialRef, CredentialStore, Provider};
 
 const SERVICE: &str = "srelens";
 const MASTER_KEY_ACCOUNT: &str = "master-key";
@@ -47,6 +48,106 @@ pub struct Secrets {
     /// Provider API keys, keyed by provider slug (`llm_config::slug`).
     #[serde(default)]
     pub llm_keys: BTreeMap<String, String>,
+    /// Connector credentials keyed by `<profile-id>/<provider>`. This map stays
+    /// inside `secrets.enc`; public profile configuration never carries a username
+    /// or secret value.
+    #[serde(default)]
+    pub connector_credentials: BTreeMap<String, ConnectorCredential>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorCredential {
+    pub username: String,
+    pub secret: String,
+}
+
+/// Desktop-only credential store backed by the encrypted secrets vault.
+///
+/// This adapter moves a credential between a connector and [`Vault`] without
+/// adding it to a capability payload, public settings, or an audit record.
+/// Its keys match [`CredentialRef::key`], so one profile's provider never
+/// resolves as another profile's credential.
+#[derive(Clone)]
+pub struct VaultCredentialStore {
+    vault: std::sync::Arc<Vault>,
+}
+
+impl VaultCredentialStore {
+    pub fn new(vault: std::sync::Arc<Vault>) -> Self {
+        Self { vault }
+    }
+
+    fn unavailable(&self) -> CredentialError {
+        CredentialError::StoreUnavailable(format!(
+            "the secrets vault is unavailable ({})",
+            self.vault.key_source()
+        ))
+    }
+}
+
+impl CredentialStore for VaultCredentialStore {
+    fn resolve(&self, reference: &CredentialRef) -> Result<Option<Credential>, CredentialError> {
+        if !self.vault.is_unlocked() {
+            return Err(self.unavailable());
+        }
+        Ok(self
+            .vault
+            .load()
+            .connector_credentials
+            .get(&reference.key())
+            .map(|credential| Credential {
+                username: credential.username.clone(),
+                secret: credential.secret.clone(),
+            }))
+    }
+
+    fn remember(
+        &self,
+        reference: &CredentialRef,
+        credential: Credential,
+    ) -> Result<(), CredentialError> {
+        self.vault
+            .update(|secrets| {
+                secrets.connector_credentials.insert(
+                    reference.key(),
+                    ConnectorCredential {
+                        username: credential.username,
+                        secret: credential.secret,
+                    },
+                );
+            })
+            .map_err(|_| self.unavailable())
+    }
+
+    fn forget(&self, reference: &CredentialRef) -> Result<(), CredentialError> {
+        self.vault
+            .update(|secrets| {
+                secrets.connector_credentials.remove(&reference.key());
+            })
+            .map_err(|_| self.unavailable())
+    }
+
+    fn configured(&self) -> Vec<CredentialRef> {
+        if !self.vault.is_unlocked() {
+            return vec![];
+        }
+        self.vault
+            .load()
+            .connector_credentials
+            .keys()
+            .filter_map(|key| {
+                let (profile_id, provider) = key.rsplit_once('/')?;
+                let provider = match provider {
+                    "jira" => Provider::Jira,
+                    "gitlab" => Provider::Gitlab,
+                    "bitbucketDc" => Provider::BitbucketDc,
+                    "jenkins" => Provider::Jenkins,
+                    _ => return None,
+                };
+                Some(CredentialRef::new(profile_id, provider))
+            })
+            .collect()
+    }
 }
 
 /// The raw master-key keychain operations, factored out so tests can inject a
@@ -216,7 +317,11 @@ impl Vault {
     /// Install `key` after a passed biometric prompt — but only if it can
     /// actually read the existing vault (a stale biometric item must not be
     /// accepted; the caller purges it on this error).
-    pub(crate) fn unlock_with(&self, key: [u8; KEY_LEN], source: &'static str) -> Result<(), String> {
+    pub(crate) fn unlock_with(
+        &self,
+        key: [u8; KEY_LEN],
+        source: &'static str,
+    ) -> Result<(), String> {
         match std::fs::read(&self.path) {
             Ok(bytes) => {
                 if decrypt(&key, &bytes).is_none() {
@@ -229,7 +334,11 @@ impl Vault {
             // unverified key here would let the old password's success path
             // clean up a staged transition whose metadata is the only way to
             // derive the (already re-keyed) vault's key.
-            Err(e) => return Err(format!("the vault file could not be read ({e}); unlock refused")),
+            Err(e) => {
+                return Err(format!(
+                    "the vault file could not be read ({e}); unlock refused"
+                ))
+            }
         }
         *self.key.write().unwrap() = Some(key);
         *self.key_source.write().unwrap() = source;
@@ -294,10 +403,16 @@ impl Vault {
     /// process + inter-process critical section that rewrites them, so a
     /// concurrent update (another command, or the standalone CLI) can never
     /// slip in between a snapshot and the re-encryption and be lost.
-    pub(crate) fn rekey_from_current(&self, new_key: [u8; KEY_LEN], source: &'static str) -> std::io::Result<()> {
+    pub(crate) fn rekey_from_current(
+        &self,
+        new_key: [u8; KEY_LEN],
+        source: &'static str,
+    ) -> std::io::Result<()> {
         let _guard = self.lock.lock().unwrap();
         let Some(old_key) = *self.key.read().unwrap() else {
-            return Err(std::io::Error::other("the vault is locked; it cannot be re-keyed"));
+            return Err(std::io::Error::other(
+                "the vault is locked; it cannot be re-keyed",
+            ));
         };
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -344,7 +459,10 @@ impl Vault {
     /// must never read as "held".
     #[cfg(test)]
     pub(crate) fn key_critical_section_is_held(&self) -> bool {
-        matches!(self.lock.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+        matches!(
+            self.lock.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        )
     }
 
     /// Read the current secrets. Missing, tampered, or wrong-key vaults read
@@ -406,8 +524,12 @@ impl Vault {
     }
 
     fn read_secrets(&self) -> Secrets {
-        let Some(key) = *self.key.read().unwrap() else { return Secrets::default() };
-        let Ok(bytes) = std::fs::read(&self.path) else { return Secrets::default() };
+        let Some(key) = *self.key.read().unwrap() else {
+            return Secrets::default();
+        };
+        let Ok(bytes) = std::fs::read(&self.path) else {
+            return Secrets::default();
+        };
         decrypt(&key, &bytes).unwrap_or_default()
     }
 }
@@ -525,7 +647,11 @@ pub(crate) fn transition_lock(dir: &Path) -> std::io::Result<std::fs::File> {
 /// unlock. Runs under the transition lock, so a LIVE stage belonging to an
 /// in-flight change in another process is never touched mid-transaction.
 /// Public: the headless CLI (`SRELENS_MASTER_PASSWORD`) uses it too.
-pub fn unlock_with_master_password(vault: &Vault, dir: &Path, password: &str) -> Result<(), String> {
+pub fn unlock_with_master_password(
+    vault: &Vault,
+    dir: &Path,
+    password: &str,
+) -> Result<(), String> {
     let _transition = transition_lock(dir).map_err(|e| e.to_string())?;
     let current = read_meta(dir);
     let mut last_err: String = "no master password is set".into();
@@ -558,7 +684,13 @@ pub(crate) fn recovery_marker_path(dir: &Path) -> PathBuf {
     dir.join("recovery-enabled")
 }
 
-fn derive_key(password: &str, salt: &[u8], m_kib: u32, t: u32, p: u32) -> Result<[u8; KEY_LEN], String> {
+fn derive_key(
+    password: &str,
+    salt: &[u8],
+    m_kib: u32,
+    t: u32,
+    p: u32,
+) -> Result<[u8; KEY_LEN], String> {
     use argon2::{Algorithm, Argon2, Params, Version};
     let params = Params::new(m_kib, t, p, Some(KEY_LEN)).map_err(|e| e.to_string())?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
@@ -609,7 +741,9 @@ pub(crate) fn unlock_key_for(meta: &VaultMeta, password: &str) -> Result<[u8; KE
 /// biometric-restored key without needing the password.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn key_matches_meta(meta: &VaultMeta, key: &[u8; KEY_LEN]) -> bool {
-    let Some(verifier) = bytes_from_hex(&meta.verifier) else { return false };
+    let Some(verifier) = bytes_from_hex(&meta.verifier) else {
+        return false;
+    };
     matches!(open_bytes(key, &verifier), Some(plain) if plain == VERIFIER)
 }
 
@@ -937,7 +1071,9 @@ fn adopt_file_key(
 }
 
 fn read_key_file(key_file: &Path) -> Option<[u8; KEY_LEN]> {
-    std::fs::read_to_string(key_file).ok().and_then(|s| key_from_hex(&s))
+    std::fs::read_to_string(key_file)
+        .ok()
+        .and_then(|s| key_from_hex(&s))
 }
 
 /// Read the fallback key file, or create it (0600, exclusive) with a fresh
@@ -990,7 +1126,11 @@ fn write_exclusive_private(path: &Path, contents: &[u8]) -> std::io::Result<()> 
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
         let _ = std::fs::remove_file(path);
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)?;
         f.write_all(contents)
     }
     #[cfg(not(unix))]
@@ -1007,10 +1147,14 @@ pub fn test_vault(dir: &Path) -> Vault {
     struct NoKeychain;
     impl KeychainBackend for NoKeychain {
         fn get_password(&self) -> Result<String, keyring::Error> {
-            Err(keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("test: no keychain"))))
+            Err(keyring::Error::NoStorageAccess(Box::new(
+                std::io::Error::other("test: no keychain"),
+            )))
         }
         fn set_password(&self, _value: &str) -> Result<(), keyring::Error> {
-            Err(keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("test: no keychain"))))
+            Err(keyring::Error::NoStorageAccess(Box::new(
+                std::io::Error::other("test: no keychain"),
+            )))
         }
     }
     Vault::with_backend(dir, Box::new(NoKeychain))
@@ -1022,7 +1166,11 @@ pub struct VaultTokenStore(pub std::sync::Arc<Vault>);
 
 impl srelens_mcp::auth::TokenStore for VaultTokenStore {
     fn load(&self) -> Option<srelens_mcp::auth::Token> {
-        self.0.load().mcp_token.as_deref().and_then(srelens_mcp::auth::Token::from_hex)
+        self.0
+            .load()
+            .mcp_token
+            .as_deref()
+            .and_then(srelens_mcp::auth::Token::from_hex)
     }
 
     fn save(&self, t: &srelens_mcp::auth::Token) -> std::io::Result<()> {
@@ -1051,7 +1199,11 @@ pub(crate) mod test_support {
 
     impl KeychainBackend for MemKeychain {
         fn get_password(&self) -> Result<String, keyring::Error> {
-            self.0.lock().unwrap().clone().ok_or(keyring::Error::NoEntry)
+            self.0
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or(keyring::Error::NoEntry)
         }
         fn set_password(&self, value: &str) -> Result<(), keyring::Error> {
             *self.0.lock().unwrap() = Some(value.to_string());
@@ -1064,10 +1216,14 @@ pub(crate) mod test_support {
 
     impl KeychainBackend for BrokenKeychain {
         fn get_password(&self) -> Result<String, keyring::Error> {
-            Err(keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("stub"))))
+            Err(keyring::Error::NoStorageAccess(Box::new(
+                std::io::Error::other("stub"),
+            )))
         }
         fn set_password(&self, _value: &str) -> Result<(), keyring::Error> {
-            Err(keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("stub"))))
+            Err(keyring::Error::NoStorageAccess(Box::new(
+                std::io::Error::other("stub"),
+            )))
         }
     }
 
@@ -1140,9 +1296,9 @@ pub(crate) mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use srelens_devops_profiles::{Credential, CredentialRef, CredentialStore, Provider};
     use srelens_mcp::auth::{Token, TokenStore};
     use test_support::{BrokenKeychain, MemKeychain};
-
 
     /// Build test passphrases at runtime rather than as literals: CodeQL's
     /// hardcoded-credential query flags every literal password in this test
@@ -1162,6 +1318,68 @@ mod tests {
     }
 
     #[test]
+    fn vault_credential_store_is_scoped_and_forgettable() {
+        let dir = temp_dir("connector-store");
+        let vault = std::sync::Arc::new(Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(None))),
+        ));
+        let store = VaultCredentialStore::new(vault);
+        let gitlab = CredentialRef::new("appfarm", Provider::Gitlab);
+        let jira = CredentialRef::new("appfarm", Provider::Jira);
+
+        store
+            .remember(
+                &gitlab,
+                Credential {
+                    username: "operator".into(),
+                    secret: test_pw("gitlab"),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.resolve(&gitlab).unwrap().map(|value| value.username),
+            Some("operator".into())
+        );
+        assert_eq!(store.resolve(&jira).unwrap(), None);
+        assert_eq!(store.configured(), vec![gitlab.clone()]);
+
+        store.forget(&gitlab).unwrap();
+        assert_eq!(store.resolve(&gitlab).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn vault_credential_store_names_a_locked_vault_instead_of_reporting_absence() {
+        let dir = temp_dir("connector-store-locked");
+        let healthy = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(None))));
+        healthy
+            .update(|secrets| {
+                secrets.connector_credentials.insert(
+                    "appfarm/gitlab".into(),
+                    ConnectorCredential {
+                        username: "operator".into(),
+                        secret: test_pw("gitlab"),
+                    },
+                );
+            })
+            .unwrap();
+
+        let store = VaultCredentialStore::new(std::sync::Arc::new(Vault::with_backend(
+            &dir,
+            Box::new(BrokenKeychain),
+        )));
+        let reference = CredentialRef::new("appfarm", Provider::Gitlab);
+
+        assert!(matches!(
+            store.resolve(&reference),
+            Err(CredentialError::StoreUnavailable(message)) if message.contains("locked")
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn secrets_round_trip_across_vault_reopens() {
         let dir = temp_dir("roundtrip");
         let a = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(None))));
@@ -1172,10 +1390,18 @@ mod tests {
         .unwrap();
         assert_eq!(a.key_source(), "keychain");
         // Reopen "next launch": a keychain already holding the key `a` minted.
-        let b = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(Some(to_hex(&a.current_key().unwrap()))))));
+        let b = Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(Some(to_hex(
+                &a.current_key().unwrap(),
+            ))))),
+        );
         let s = b.load();
         assert_eq!(s.mcp_token.as_deref(), Some("ab".repeat(32).as_str()));
-        assert_eq!(s.llm_keys.get("anthropic").map(String::as_str), Some("sk-ant-123"));
+        assert_eq!(
+            s.llm_keys.get("anthropic").map(String::as_str),
+            Some("sk-ant-123")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1189,8 +1415,39 @@ mod tests {
         })
         .unwrap();
         let s = v.load();
-        assert_eq!(s.mcp_token.as_deref(), Some("cd".repeat(32).as_str()), "token survived the key write");
+        assert_eq!(
+            s.mcp_token.as_deref(),
+            Some("cd".repeat(32).as_str()),
+            "token survived the key write"
+        );
         assert_eq!(s.llm_keys.get("openai").map(String::as_str), Some("sk-oai"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn connector_credentials_are_sealed_with_the_rest_of_the_vault() {
+        let dir = temp_dir("connector");
+        let v = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(None))));
+        v.update(|s| {
+            s.connector_credentials.insert(
+                "komus/bitbucketDc".into(),
+                ConnectorCredential {
+                    username: "operator".into(),
+                    secret: test_pw("connector"),
+                },
+            );
+        })
+        .unwrap();
+
+        let stored = v.load();
+        assert_eq!(
+            stored
+                .connector_credentials
+                .get("komus/bitbucketDc")
+                .map(|c| c.username.as_str()),
+            Some("operator")
+        );
+        assert_eq!(stored.llm_keys, std::collections::BTreeMap::new());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1201,7 +1458,10 @@ mod tests {
         v.update(|s| s.mcp_token = Some("ef".repeat(32))).unwrap();
 
         // Wrong key: a different vault instance with a fresh random key.
-        let wrong = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(Some(to_hex(&generate_key()))))));
+        let wrong = Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(Some(to_hex(&generate_key()))))),
+        );
         assert_eq!(wrong.load(), Secrets::default());
 
         // Tampered ciphertext: flip one byte — the AEAD tag must reject it.
@@ -1224,14 +1484,23 @@ mod tests {
         v.update(|s| s.mcp_token = Some("01".repeat(32))).unwrap();
         let bytes = std::fs::read(dir.join("secrets.enc")).unwrap();
         assert_eq!(bytes[0], FORMAT_VERSION);
-        assert!(bytes.len() > 1 + NONCE_LEN + 16, "nonce + tag + ciphertext present");
+        assert!(
+            bytes.len() > 1 + NONCE_LEN + 16,
+            "nonce + tag + ciphertext present"
+        );
         // The plaintext must not appear in the file.
         let hex_token = "01".repeat(32);
-        assert!(!bytes.windows(hex_token.len()).any(|w| w == hex_token.as_bytes()));
+        assert!(!bytes
+            .windows(hex_token.len())
+            .any(|w| w == hex_token.as_bytes()));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(dir.join("secrets.enc")).unwrap().permissions().mode() & 0o777;
+            let mode = std::fs::metadata(dir.join("secrets.enc"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
             assert_eq!(mode, 0o600);
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -1255,24 +1524,37 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(dir.join("master.key")).unwrap().permissions().mode() & 0o777;
+            let mode = std::fs::metadata(dir.join("master.key"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
             assert_eq!(mode, 0o600);
         }
         // A second open (fresh process) reads the SAME key from the file, so
         // the vault written above still decrypts.
         let b = Vault::with_backend(&dir, Box::new(BrokenKeychain));
-        assert_eq!(b.load().mcp_token.as_deref(), Some("23".repeat(32).as_str()));
+        assert_eq!(
+            b.load().mcp_token.as_deref(),
+            Some("23".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_malformed_keychain_entry_is_replaced_with_a_fresh_key() {
         let dir = temp_dir("malformed");
-        let v = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(Some("not-hex".into())))));
+        let v = Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(Some("not-hex".into())))),
+        );
         assert_eq!(v.key_source(), "keychain");
         // And the vault is usable with the replacement key.
         v.update(|s| s.mcp_token = Some("45".repeat(32))).unwrap();
-        assert_eq!(v.load().mcp_token.as_deref(), Some("45".repeat(32).as_str()));
+        assert_eq!(
+            v.load().mcp_token.as_deref(),
+            Some("45".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1281,14 +1563,19 @@ mod tests {
         let dir = temp_dir("import");
         // Launch 1: no keychain — secrets land under a file key.
         let headless = Vault::with_backend(&dir, Box::new(BrokenKeychain));
-        headless.update(|s| s.mcp_token = Some("67".repeat(32))).unwrap();
+        headless
+            .update(|s| s.mcp_token = Some("67".repeat(32)))
+            .unwrap();
 
         // Launch 2: keychain works but holds no entry. The file key must be
         // imported (NOT a fresh key minted), so the vault still decrypts…
         let mem = Mutex::new(None);
         let gui = Vault::with_backend(&dir, Box::new(MemKeychain(mem)));
         assert_eq!(gui.key_source(), "keychain");
-        assert_eq!(gui.load().mcp_token.as_deref(), Some("67".repeat(32).as_str()));
+        assert_eq!(
+            gui.load().mcp_token.as_deref(),
+            Some("67".repeat(32).as_str())
+        );
         // …and the plaintext file copy is gone after a successful import.
         assert!(!dir.join("master.key").exists());
         let _ = std::fs::remove_dir_all(&dir);
@@ -1299,14 +1586,25 @@ mod tests {
         let dir = temp_dir("diverge");
         // The vault was written under a FILE key (a transient keychain outage)…
         let outage = Vault::with_backend(&dir, Box::new(BrokenKeychain));
-        outage.update(|s| s.mcp_token = Some("89".repeat(32))).unwrap();
+        outage
+            .update(|s| s.mcp_token = Some("89".repeat(32)))
+            .unwrap();
         // …while the keychain still holds an older, unrelated key.
         let stale_keychain_key = to_hex(&generate_key());
-        let healed = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(Some(stale_keychain_key)))));
+        let healed = Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(Some(stale_keychain_key)))),
+        );
         // The file key decrypts the vault, so it wins and is promoted.
         assert_eq!(healed.key_source(), "keychain");
-        assert_eq!(healed.load().mcp_token.as_deref(), Some("89".repeat(32).as_str()));
-        assert!(!dir.join("master.key").exists(), "promoted file key's plaintext copy removed");
+        assert_eq!(
+            healed.load().mcp_token.as_deref(),
+            Some("89".repeat(32).as_str())
+        );
+        assert!(
+            !dir.join("master.key").exists(),
+            "promoted file key's plaintext copy removed"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1318,7 +1616,10 @@ mod tests {
         // A later keychain-less launch must reuse the SAME file key, never
         // mint a second one over it.
         let b = Vault::with_backend(&dir, Box::new(BrokenKeychain));
-        assert_eq!(b.load().mcp_token.as_deref(), Some("ba".repeat(32).as_str()));
+        assert_eq!(
+            b.load().mcp_token.as_deref(),
+            Some("ba".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1327,7 +1628,9 @@ mod tests {
         let dir = temp_dir("locked");
         // The vault exists, keyed by a healthy keychain…
         let healthy = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(None))));
-        healthy.update(|s| s.mcp_token = Some("dc".repeat(32))).unwrap();
+        healthy
+            .update(|s| s.mcp_token = Some("dc".repeat(32)))
+            .unwrap();
         let vault_before = std::fs::read(dir.join("secrets.enc")).unwrap();
 
         // …and a later launch can't reach the keychain (locked store, dead
@@ -1336,16 +1639,30 @@ mod tests {
         let outage = Vault::with_backend(&dir, Box::new(BrokenKeychain));
         assert_eq!(outage.key_source(), "locked");
         assert_eq!(outage.load(), Secrets::default());
-        let err = outage.update(|s| s.mcp_token = Some("ff".repeat(32))).unwrap_err();
+        let err = outage
+            .update(|s| s.mcp_token = Some("ff".repeat(32)))
+            .unwrap_err();
         assert!(err.to_string().contains("locked"), "got: {err}");
-        assert_eq!(std::fs::read(dir.join("secrets.enc")).unwrap(), vault_before);
-        assert!(!dir.join("master.key").exists(), "no replacement key was minted");
+        assert_eq!(
+            std::fs::read(dir.join("secrets.enc")).unwrap(),
+            vault_before
+        );
+        assert!(
+            !dir.join("master.key").exists(),
+            "no replacement key was minted"
+        );
 
         // The next healthy launch reads everything as before.
-        let healed = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(Some(to_hex(
-            &healthy.current_key().unwrap(),
-        ))))));
-        assert_eq!(healed.load().mcp_token.as_deref(), Some("dc".repeat(32).as_str()));
+        let healed = Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(Some(to_hex(
+                &healthy.current_key().unwrap(),
+            ))))),
+        );
+        assert_eq!(
+            healed.load().mcp_token.as_deref(),
+            Some("dc".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1355,7 +1672,11 @@ mod tests {
 
     impl KeychainBackend for SharedKeychain {
         fn get_password(&self) -> Result<String, keyring::Error> {
-            self.0.lock().unwrap().clone().ok_or(keyring::Error::NoEntry)
+            self.0
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or(keyring::Error::NoEntry)
         }
         fn set_password(&self, value: &str) -> Result<(), keyring::Error> {
             *self.0.lock().unwrap() = Some(value.to_string());
@@ -1374,13 +1695,24 @@ mod tests {
             .map(|_| {
                 let dir = dir.clone();
                 let entry = entry.clone();
-                std::thread::spawn(move || Vault::with_backend(&dir, Box::new(SharedKeychain(entry))))
+                std::thread::spawn(move || {
+                    Vault::with_backend(&dir, Box::new(SharedKeychain(entry)))
+                })
             })
             .collect();
         let vaults: Vec<Vault> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        assert_eq!(vaults[0].current_key().unwrap(), vaults[1].current_key().unwrap(), "both openers hold the same key");
-        vaults[0].update(|s| s.mcp_token = Some("aa".repeat(32))).unwrap();
-        assert_eq!(vaults[1].load().mcp_token.as_deref(), Some("aa".repeat(32).as_str()));
+        assert_eq!(
+            vaults[0].current_key().unwrap(),
+            vaults[1].current_key().unwrap(),
+            "both openers hold the same key"
+        );
+        vaults[0]
+            .update(|s| s.mcp_token = Some("aa".repeat(32)))
+            .unwrap();
+        assert_eq!(
+            vaults[1].load().mcp_token.as_deref(),
+            Some("aa".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1394,10 +1726,16 @@ mod tests {
         // would split the vault between two live processes.
         let b = Vault::with_backend(&dir, Box::new(BrokenKeychain));
         assert_eq!(b.key_source(), "locked");
-        assert!(!dir.join("master.key").exists(), "no divergent fallback key was minted");
+        assert!(
+            !dir.join("master.key").exists(),
+            "no divergent fallback key was minted"
+        );
         // A remains fully functional and authoritative.
         a.update(|s| s.mcp_token = Some("cc".repeat(32))).unwrap();
-        assert_eq!(a.load().mcp_token.as_deref(), Some("cc".repeat(32).as_str()));
+        assert_eq!(
+            a.load().mcp_token.as_deref(),
+            Some("cc".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1409,7 +1747,10 @@ mod tests {
         std::fs::create_dir_all(dir.join("master.key")).unwrap();
         let v = Vault::with_backend(&dir, Box::new(BrokenKeychain));
         assert_eq!(v.key_source(), "locked");
-        assert!(v.update(|s| s.mcp_token = Some("bb".repeat(32))).is_err(), "saves must fail loudly");
+        assert!(
+            v.update(|s| s.mcp_token = Some("bb".repeat(32))).is_err(),
+            "saves must fail loudly"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1425,10 +1766,19 @@ mod tests {
             })
             .collect();
         let vaults: Vec<Vault> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        assert_eq!(vaults[0].current_key().unwrap(), vaults[1].current_key().unwrap(), "both openers hold the same key");
+        assert_eq!(
+            vaults[0].current_key().unwrap(),
+            vaults[1].current_key().unwrap(),
+            "both openers hold the same key"
+        );
         // And a write through one is readable through the other.
-        vaults[0].update(|s| s.mcp_token = Some("ee".repeat(32))).unwrap();
-        assert_eq!(vaults[1].load().mcp_token.as_deref(), Some("ee".repeat(32).as_str()));
+        vaults[0]
+            .update(|s| s.mcp_token = Some("ee".repeat(32)))
+            .unwrap();
+        assert_eq!(
+            vaults[1].load().mcp_token.as_deref(),
+            Some("ee".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1495,7 +1845,9 @@ mod tests {
         let dir = temp_dir("pwsetup");
         // Legacy machine-key vault with a secret in it.
         let legacy = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(None))));
-        legacy.update(|s| s.mcp_token = Some("fe".repeat(32))).unwrap();
+        legacy
+            .update(|s| s.mcp_token = Some("fe".repeat(32)))
+            .unwrap();
 
         // Setup: derive from the password, re-encrypt the existing secrets —
         // the snapshot is taken INSIDE the rekey critical section.
@@ -1503,7 +1855,10 @@ mod tests {
         legacy.rekey_from_current(key, "password").unwrap();
         write_meta(&dir, &meta).unwrap();
         assert_eq!(legacy.key_source(), "password");
-        assert_eq!(legacy.load().mcp_token.as_deref(), Some("fe".repeat(32).as_str()));
+        assert_eq!(
+            legacy.load().mcp_token.as_deref(),
+            Some("fe".repeat(32).as_str())
+        );
 
         // The next open sees vault.json and starts password-locked — no
         // keyring resolution, no silent key.
@@ -1522,7 +1877,10 @@ mod tests {
         // The password unlocks it via the meta-derived key.
         let unlocked_key = unlock_key_for(&read_meta(&dir).unwrap(), &test_pw("setup")).unwrap();
         reopened.unlock_with(unlocked_key, "password").unwrap();
-        assert_eq!(reopened.load().mcp_token.as_deref(), Some("fe".repeat(32).as_str()));
+        assert_eq!(
+            reopened.load().mcp_token.as_deref(),
+            Some("fe".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1546,7 +1904,10 @@ mod tests {
         assert!(err.to_string().contains("re-keyed"), "got: {err}");
         // The re-keyed vault is untouched.
         let bytes = std::fs::read(dir.join("secrets.enc")).unwrap();
-        assert_eq!(decrypt(&new_key, &bytes).unwrap().mcp_token.as_deref(), Some("dd".repeat(32).as_str()));
+        assert_eq!(
+            decrypt(&new_key, &bytes).unwrap().mcp_token.as_deref(),
+            Some("dd".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1575,12 +1936,18 @@ mod tests {
         let reopened = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(None))));
         let err = unlock_with_master_password(&reopened, &dir, &test_pw("pold")).unwrap_err();
         assert!(err.contains("could not be read"), "got: {err}");
-        assert!(meta_next_path(&dir).exists(), "the stage must survive the refusal");
+        assert!(
+            meta_next_path(&dir).exists(),
+            "the stage must survive the refusal"
+        );
 
         // Access restored: the new password recovers via the stage.
         std::fs::set_permissions(&vault_file, std::fs::Permissions::from_mode(0o600)).unwrap();
         unlock_with_master_password(&reopened, &dir, &test_pw("pnew")).unwrap();
-        assert_eq!(reopened.load().mcp_token.as_deref(), Some("ef".repeat(32).as_str()));
+        assert_eq!(
+            reopened.load().mcp_token.as_deref(),
+            Some("ef".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1598,13 +1965,28 @@ mod tests {
         // writable — both write paths must ABORT, not re-create it empty.
         std::fs::set_permissions(&vault_file, std::fs::Permissions::from_mode(0o000)).unwrap();
         let update_err = v.update(|s| s.mcp_token = None).unwrap_err();
-        assert!(update_err.to_string().contains("could not be read"), "got: {update_err}");
-        let rekey_err = v.rekey_from_current(generate_key(), "password").unwrap_err();
-        assert!(rekey_err.to_string().contains("could not be read"), "got: {rekey_err}");
+        assert!(
+            update_err.to_string().contains("could not be read"),
+            "got: {update_err}"
+        );
+        let rekey_err = v
+            .rekey_from_current(generate_key(), "password")
+            .unwrap_err();
+        assert!(
+            rekey_err.to_string().contains("could not be read"),
+            "got: {rekey_err}"
+        );
 
         std::fs::set_permissions(&vault_file, std::fs::Permissions::from_mode(0o600)).unwrap();
-        assert_eq!(std::fs::read(&vault_file).unwrap(), before, "vault bytes untouched");
-        assert_eq!(v.load().mcp_token.as_deref(), Some("cd".repeat(32).as_str()));
+        assert_eq!(
+            std::fs::read(&vault_file).unwrap(),
+            before,
+            "vault bytes untouched"
+        );
+        assert_eq!(
+            v.load().mcp_token.as_deref(),
+            Some("cd".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1626,16 +2008,28 @@ mod tests {
         // stage must survive, never be mistaken for a stale one.
         let vault_file = dir.join("secrets.enc");
         std::fs::set_permissions(&vault_file, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let during = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(Some(machine_key_hex.clone())))));
-        assert!(meta_next_path(&dir).exists(), "stage must survive a read error");
+        let during = Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(Some(machine_key_hex.clone())))),
+        );
+        assert!(
+            meta_next_path(&dir).exists(),
+            "stage must survive a read error"
+        );
         drop(during);
 
         // Access restored: normal arbitration promotes the stage.
         std::fs::set_permissions(&vault_file, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let healed = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(Some(machine_key_hex)))));
+        let healed = Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(Some(machine_key_hex)))),
+        );
         assert_eq!(healed.key_source(), "password-locked");
         unlock_with_master_password(&healed, &dir, &test_pw("perm")).unwrap();
-        assert_eq!(healed.load().mcp_token.as_deref(), Some("ab".repeat(32).as_str()));
+        assert_eq!(
+            healed.load().mcp_token.as_deref(),
+            Some("ab".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1653,7 +2047,10 @@ mod tests {
         // locked with its bytes untouched.
         let outage = Vault::with_backend(&dir, Box::new(BrokenKeychain));
         assert_eq!(outage.key_source(), "locked");
-        assert!(meta_next_path(&dir).exists(), "the stage must survive the outage");
+        assert!(
+            meta_next_path(&dir).exists(),
+            "the stage must survive the outage"
+        );
         assert!(!meta_path(&dir).exists(), "nothing was promoted blind");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1682,7 +2079,10 @@ mod tests {
         assert_eq!(reopened.key_source(), "password-locked");
         assert!(unlock_with_master_password(&reopened, &dir, &test_pw("old")).is_err());
         unlock_with_master_password(&reopened, &dir, &test_pw("new")).unwrap();
-        assert_eq!(reopened.load().mcp_token.as_deref(), Some("aa".repeat(32).as_str()));
+        assert_eq!(
+            reopened.load().mcp_token.as_deref(),
+            Some("aa".repeat(32).as_str())
+        );
         assert!(!meta_next_path(&dir).exists(), "the stage was promoted");
         assert_eq!(read_meta(&dir).unwrap(), new_meta);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1698,12 +2098,17 @@ mod tests {
         let (staged, _) = build_meta(&test_pw("neverused")).unwrap();
         write_meta_next(&dir, &staged).unwrap();
 
-        let reopened =
-            Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(Some(machine_key_hex)))));
+        let reopened = Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(Some(machine_key_hex)))),
+        );
         // The machine key still decrypts the vault, so machine mode continues
         // (setup will show again) and the stale stage is gone.
         assert_eq!(reopened.key_source(), "keychain");
-        assert_eq!(reopened.load().mcp_token.as_deref(), Some("bb".repeat(32).as_str()));
+        assert_eq!(
+            reopened.load().mcp_token.as_deref(),
+            Some("bb".repeat(32).as_str())
+        );
         assert!(!meta_next_path(&dir).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1719,13 +2124,18 @@ mod tests {
         write_meta_next(&dir, &staged).unwrap();
         v.rekey_from_current(staged_key, "password").unwrap();
 
-        let reopened =
-            Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(Some(machine_key_hex)))));
+        let reopened = Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(Some(machine_key_hex)))),
+        );
         // The machine key no longer fits, so the stage is committed and the
         // chosen password unlocks everything.
         assert_eq!(reopened.key_source(), "password-locked");
         unlock_with_master_password(&reopened, &dir, &test_pw("chosen")).unwrap();
-        assert_eq!(reopened.load().mcp_token.as_deref(), Some("cc".repeat(32).as_str()));
+        assert_eq!(
+            reopened.load().mcp_token.as_deref(),
+            Some("cc".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1734,7 +2144,9 @@ mod tests {
         let dir = temp_dir("bio");
         // Seed a vault under a known key via a working keychain.
         let healthy = Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(None))));
-        healthy.update(|s| s.mcp_token = Some("ad".repeat(32))).unwrap();
+        healthy
+            .update(|s| s.mcp_token = Some("ad".repeat(32)))
+            .unwrap();
         let key = healthy.current_key().unwrap();
 
         // Gate on: the marker is present, so resolution must not consult the
@@ -1752,34 +2164,47 @@ mod tests {
         let gated = Vault::with_backend(&dir, Box::new(MustNotTouch));
         assert_eq!(gated.key_source(), "biometric-locked");
         assert!(gated.load().mcp_token.is_none(), "locked reads are empty");
-        assert!(gated.update(|s| s.mcp_token = None).is_err(), "locked writes fail loudly");
+        assert!(
+            gated.update(|s| s.mcp_token = None).is_err(),
+            "locked writes fail loudly"
+        );
 
         // A stale/wrong biometric key is rejected…
         assert!(gated.unlock_with(generate_key(), "biometric").is_err());
         // …the right one unlocks for the rest of the run.
         gated.unlock_with(key, "biometric").unwrap();
         assert_eq!(gated.key_source(), "biometric");
-        assert_eq!(gated.load().mcp_token.as_deref(), Some("ad".repeat(32).as_str()));
+        assert_eq!(
+            gated.load().mcp_token.as_deref(),
+            Some("ad".repeat(32).as_str())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn the_vault_token_store_round_trips_and_clears() {
         let dir = temp_dir("tokenstore");
-        let vault = std::sync::Arc::new(Vault::with_backend(&dir, Box::new(MemKeychain(Mutex::new(None)))));
+        let vault = std::sync::Arc::new(Vault::with_backend(
+            &dir,
+            Box::new(MemKeychain(Mutex::new(None))),
+        ));
         let store = VaultTokenStore(vault.clone());
         assert!(store.load().is_none());
         let t = Token::generate();
         store.save(&t).unwrap();
         assert_eq!(store.load().unwrap().as_str(), t.as_str());
         // The token coexists with other secrets rather than clobbering them.
-        vault.update(|s| {
-            s.llm_keys.insert("gemini".into(), "g-key".into());
-        })
-        .unwrap();
+        vault
+            .update(|s| {
+                s.llm_keys.insert("gemini".into(), "g-key".into());
+            })
+            .unwrap();
         store.clear().unwrap();
         assert!(store.load().is_none());
-        assert_eq!(vault.load().llm_keys.get("gemini").map(String::as_str), Some("g-key"));
+        assert_eq!(
+            vault.load().llm_keys.get("gemini").map(String::as_str),
+            Some("g-key")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

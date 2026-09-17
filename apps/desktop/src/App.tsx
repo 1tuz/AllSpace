@@ -20,6 +20,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { ShortcutCheatSheet } from "./components/ShortcutCheatSheet";
 import { isTypingTarget, matchesShortcut } from "@srelens/core";
 import { takeHandoff } from "./design";
+import { takeRuntimeHandoff } from "./workspace/runtimeHandoff";
 import { McpConfirmDialog } from "./components/McpConfirmDialog";
 import { VaultGate } from "./components/VaultGate";
 import { Toaster } from "./components/ui/sonner";
@@ -51,7 +52,6 @@ import {
   loadContextOrder,
   saveContextOrder,
   orderContexts,
-  loadUpdateChannel,
   loadMcpSettings,
 } from "@srelens/core";
 import { applyUiScale, getUiScale, setUiScale, stepUiScale, uiScaleShortcut } from "@srelens/core";
@@ -79,7 +79,6 @@ import {
 } from "@srelens/core";
 import { flushSettingsWrites } from "@srelens/core";
 import { startMcpHttp } from "@srelens/core";
-import { checkForUpdateAndNotify } from "@srelens/core";
 import { notify } from "@srelens/core";
 import { isTauri, isWeb } from "@srelens/core/platform";
 import type { SettingsSection } from "./components/SettingsView";
@@ -284,6 +283,22 @@ export function App() {
     if (contexts.some((c) => c.name === handoff.context)) {
       openView(handoff.context, handoff.kind);
     }
+  }, [contexts]);
+
+  // Delivery Trace → Explore in Kubernetes: focus a workload in classic IDE.
+  useEffect(() => {
+    if (!contexts) return;
+    const target = takeRuntimeHandoff();
+    if (!target) return;
+    if (!target.name) return;
+    if (!contexts.some((c) => c.name === target.context)) return;
+    if (!(target.kind in RESOURCE_LABELS)) return;
+    openResourceIn(
+      target.context,
+      target.kind as ResourceKind,
+      target.namespace || null,
+      target.name,
+    );
   }, [contexts]);
 
   // Routed only once the contexts are known: a link that arrives during a cold
@@ -769,33 +784,6 @@ export function App() {
     setTabs((ts) => [...ts, { id, cluster: null, kind: "assistant", namespace: "" }]);
     setActiveTabId(id);
   }
-  // Keep a stable handle to openSettings so the update-check effect's toast
-  // action always uses the current tab state, not a stale closure.
-  const openSettingsRef = useRef(openSettings);
-  openSettingsRef.current = openSettings;
-
-  // Automatically check for updates on startup and periodically, surfacing a
-  // small toast (with a link to the Updates section) when one is available —
-  // rather than only when the user opens Settings and clicks "check".
-  const notifiedVersionRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!isTauri()) return;
-    const channel = loadUpdateChannel();
-    const run = () =>
-      void checkForUpdateAndNotify(
-        channel,
-        (update) => {
-          notifiedVersionRef.current = update.version;
-          notify.updateAvailable(update.version, () => openSettingsRef.current("updates"));
-        },
-        { alreadyNotified: (v) => notifiedVersionRef.current === v },
-      );
-    run();
-    const SIX_HOURS = 6 * 60 * 60 * 1000;
-    const timer = setInterval(run, SIX_HOURS);
-    return () => clearInterval(timer);
-  }, []);
-
   // The MCP server needs the vault's token, so its auto-start must wait for
   // the VaultGate to report the vault usable (set up + unlocked). Flipped by
   // the gate's onReady exactly once per launch; starting while locked would

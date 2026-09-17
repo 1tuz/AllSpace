@@ -44,6 +44,10 @@ fn main() {
     }
 
     let args: Vec<String> = std::env::args().collect();
+    // `devops …` — headless delivery CLI over the same capability registry as MCP.
+    if args.get(1).map(String::as_str) == Some("devops") {
+        srelens_desktop_lib::devops_cli::run(&args[2..], master_password);
+    }
     // `serve [addr] [--data DIR]` runs the web server (frontend + capability
     // API) instead of the GUI. Sessions + OIDC/dev-login auth are required; default bind is loopback.
     if args.get(1).map(String::as_str) == Some("serve") {
@@ -79,8 +83,7 @@ fn main() {
     let allow_destructive = args.iter().any(|a| a == "--mcp-allow-destructive");
     let allow_sensitive_reads = args.iter().any(|a| a == "--mcp-allow-sensitive-reads");
     if args.iter().any(|a| a == "--mcp-stdio") {
-        drop(master_password);
-        run_mcp_stdio(allow_destructive, allow_sensitive_reads);
+        run_mcp_stdio(allow_destructive, allow_sensitive_reads, master_password);
         return;
     }
     if let Some(i) = args.iter().position(|a| a == "--mcp-http") {
@@ -158,29 +161,7 @@ fn run_mcp_http(
     // by holding its master key in a 0600 file instead — `save` only errors
     // on a real file-write failure, so `.expect` below can't panic just
     // because there's no D-Bus session on this host.
-    let vault = Arc::new(srelens_desktop_lib::vault::Vault::open(&mcp_dir()));
-    // A password-protected vault has no GUI here to unlock it: accept the
-    // master password from the environment (never argv — it would show in
-    // `ps`). Without it, `SRELENS_MCP_TOKEN` still works, and a store-token
-    // path that needs to mint exits below with guidance naming both.
-    // Both password-derived locked sources unlock with the master password:
-    // `biometric-locked` only means the GUI would normally skip the password
-    // via Touch ID / Hello — the password (and vault.json) still exist.
-    if matches!(vault.key_source(), "password-locked" | "biometric-locked") {
-        match master_password {
-            Some(password) => {
-                if let Err(e) =
-                    srelens_desktop_lib::vault::unlock_with_master_password(&vault, &mcp_dir(), &password)
-                {
-                    eprintln!("srelens: SRELENS_MASTER_PASSWORD did not unlock the vault: {e}");
-                    std::process::exit(2);
-                }
-            }
-            None => eprintln!(
-                "srelens: the secrets vault is password-locked; set SRELENS_MASTER_PASSWORD to unlock it, or pass the token via {TOKEN_ENV}"
-            ),
-        }
-    }
+    let vault = srelens_desktop_lib::devops_cli::open_vault(master_password);
     let store = srelens_desktop_lib::vault::VaultTokenStore(vault.clone());
     let token = match std::env::var(TOKEN_ENV).ok().filter(|v| !v.trim().is_empty()) {
         Some(hex) => srelens_mcp::auth::Token::from_hex(&hex).unwrap_or_else(|| {
@@ -227,10 +208,12 @@ fn run_mcp_http(
         let cache = srelens_kube::client_cache::ClientCache::new_many(
             srelens_registry::all_kubeconfig_paths(),
         );
+        let credentials = srelens_desktop_lib::devops_cli::headless_credentials(vault.clone());
         let registry = srelens_desktop_lib::build_registry_with_paths_and_settings(
             cache.clone(),
             srelens_registry::default_kubeconfig_paths(),
             srelens_desktop_lib::default_settings_path(),
+            credentials,
         );
         let server = srelens_mcp::McpServer::new(Arc::new(registry))
             .with_policy(policy)
@@ -276,11 +259,16 @@ fn run_serve(addr: &str, data_flag: Option<&str>) {
     });
 }
 
-fn run_mcp_stdio(allow_destructive: bool, allow_sensitive_reads: bool) {
+fn run_mcp_stdio(
+    allow_destructive: bool,
+    allow_sensitive_reads: bool,
+    master_password: Option<String>,
+) {
     let policy = Arc::new(srelens_mcp::policy::FlagGated::new(
         allow_destructive,
         allow_sensitive_reads,
     ));
+    let vault = srelens_desktop_lib::devops_cli::open_vault(master_password);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -292,10 +280,12 @@ fn run_mcp_stdio(allow_destructive: bool, allow_sensitive_reads: bool) {
         let cache = srelens_kube::client_cache::ClientCache::new_many(
             srelens_registry::all_kubeconfig_paths(),
         );
+        let credentials = srelens_desktop_lib::devops_cli::headless_credentials(vault);
         let registry = srelens_desktop_lib::build_registry_with_paths_and_settings(
             cache.clone(),
             srelens_registry::default_kubeconfig_paths(),
             srelens_desktop_lib::default_settings_path(),
+            credentials,
         );
         let server = srelens_mcp::McpServer::new(Arc::new(registry))
             .with_policy(policy)

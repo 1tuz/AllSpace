@@ -5,6 +5,14 @@ resources, and taking action. For installation see the
 [installation guide](INSTALL.md); for building from source see the
 [developer guide](DEVELOPMENT.md).
 
+> **This fork:** the default desktop surface is a delivery-first **DevOps
+> Workspace** (Home → Deliveries → Connections). Kubernetes remains available
+> as a secondary Explorer and via the classic IDE escape hatch. Product
+> direction: [`DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md`](../DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md)
+> and [`docs/devops-cockpit/PRODUCT.md`](devops-cockpit/PRODUCT.md).
+> Sections below that describe the cluster hotbar describe the **classic**
+> Kubernetes IDE surface.
+
 srelens organises work around three loops — **discover** what is running,
 **understand** why it is behaving the way it is, and **operate** on it safely.
 Every action below uses your local kubeconfig credentials and talks directly to

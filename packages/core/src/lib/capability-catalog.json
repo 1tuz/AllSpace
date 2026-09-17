@@ -1,5 +1,54 @@
 [
   {
+    "id": "bitbucket.listCommits",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "bitbucket.listPullRequests",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "devops.profiles.list",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "devops.profiles.select",
+    "readOnly": false,
+    "destructive": false,
+    "requiresConfirm": true,
+    "sensitive": false
+  },
+  {
+    "id": "devops.profiles.upsert",
+    "readOnly": false,
+    "destructive": false,
+    "requiresConfirm": true,
+    "sensitive": false
+  },
+  {
+    "id": "devops.traceDelivery",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "devops.traceIssue",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
     "id": "extensions.action",
     "readOnly": false,
     "destructive": false,
@@ -50,6 +99,41 @@
   },
   {
     "id": "extensions.validate",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "gitlab.listCommits",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "gitlab.listMergeRequests",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "gitlab.listPipelines",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "jenkins.listBuilds",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "jira.searchIssues",
     "readOnly": true,
     "destructive": false,
     "requiresConfirm": false,

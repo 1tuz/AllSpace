@@ -70,6 +70,7 @@ describe("ClusterHotbar", () => {
       <ClusterHotbar
         openContext={null}
         onOpenContext={() => {}}
+        contexts={[]}
         theme={theme}
         onToggleTheme={onToggleTheme}
         onOpenSettings={() => {}}
@@ -86,6 +87,7 @@ describe("ClusterHotbar", () => {
       <ClusterHotbar
         openContext={null}
         onOpenContext={() => {}}
+        contexts={[]}
         theme={theme}
         onToggleTheme={() => {}}
         onOpenSettings={onOpenSettings}

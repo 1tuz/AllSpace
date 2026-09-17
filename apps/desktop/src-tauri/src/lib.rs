@@ -9,6 +9,8 @@ mod bridge;
 pub mod capabilities;
 mod cluster_oidc;
 mod cluster_oidc_cmd;
+mod devops_credentials;
+pub mod devops_cli;
 mod llm_agent;
 mod llm_config;
 mod exec;
@@ -265,7 +267,6 @@ pub fn run() {
     // One shared client cache: request/response capabilities AND live watches
     // reuse the same authenticated kube-rs clients.
     let cache = ClientCache::new_many(capabilities::all_kubeconfig_paths());
-    let registry = capabilities::build_registry_with(cache.clone());
 
     // single-instance is registered BEFORE every other plugin, as the plugin
     // requires: it has to claim the lock and hand a second launch's argv over
@@ -296,6 +297,7 @@ pub fn run() {
 
     let watcher_cache = cache.clone();
     let oidc_cache = cache.clone();
+    let registry_cache = cache.clone();
     builder
         .setup(move |app| {
             // Application logging: always write a rotating file to the OS log
@@ -397,7 +399,8 @@ pub fn run() {
             // as the `Arc<dyn TokenStore>` the MCP commands take. Same dir
             // `main.rs`'s headless CLI resolves, so a token provisioned in
             // one is usable from the other.
-            match app.path().app_config_dir().map(|d| d.join("mcp")) {
+            let credential_store: std::sync::Arc<dyn srelens_registry::CredentialStore> =
+                match app.path().app_config_dir().map(|d| d.join("mcp")) {
                 Ok(dir) => {
                     if let Err(e) = std::fs::create_dir_all(&dir) {
                         log::warn!("could not create MCP config dir {}: {e}", dir.display());
@@ -406,7 +409,7 @@ pub fn run() {
                     let token_store: std::sync::Arc<dyn srelens_mcp::auth::TokenStore> =
                         std::sync::Arc::new(vault::VaultTokenStore(vault.clone()));
                     app.manage(token_store);
-                    app.manage(vault);
+                    app.manage(vault.clone());
                     app.manage(McpAuditPath(dir.join("audit.jsonl")));
 
                     let prompts_dir = dir.join("prompts");
@@ -417,14 +420,23 @@ pub fn run() {
                         );
                     }
                     app.manage(McpPromptsDir(prompts_dir));
+                    std::sync::Arc::new(vault::VaultCredentialStore::new(vault))
                 }
-                Err(e) => log::warn!("MCP config dir unavailable: {e}"),
-            }
+                Err(e) => {
+                    log::warn!("MCP config dir unavailable: {e}");
+                    std::sync::Arc::new(srelens_registry::SessionCredentials::new())
+                }
+            };
+            app.manage(AppRegistry(capabilities::build_registry_with_paths_and_settings(
+                registry_cache.clone(),
+                capabilities::default_kubeconfig_paths(),
+                capabilities::default_settings_path(),
+                credential_store,
+            )));
             app.manage(std::sync::Arc::new(mcp_confirm::Pending::default()));
 
             Ok(())
         })
-        .manage(AppRegistry(registry))
         // The cache itself, for commands that need the live kubeconfig paths
         // (overview_snapshot resolves context → cluster identity from them).
         .manage(cache.clone())
@@ -449,6 +461,9 @@ pub fn run() {
             llm_agent::llm_clear_key,
             llm_agent::llm_key_status,
             llm_agent::llm_list_models,
+            devops_credentials::devops_credential_set,
+            devops_credentials::devops_credential_clear,
+            devops_credentials::devops_credential_status,
             assistant_history::chat_history_list,
             assistant_history::chat_history_load,
             assistant_history::chat_history_save,

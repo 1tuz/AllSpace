@@ -1,111 +1,181 @@
-# Архитектура
+# Architecture — DevOps Workspace
 
-## База
+> Canonical product direction:
+> [`DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md`](../../DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md).
 
-Форк основан на `srelens/srelens`, ветка `dev`, исходный commit
-`01f2f56885e1a46182246bc47cc787e1245db2a9`.
+Fork of `srelens/srelens` (`dev` @ `01f2f568…`). Two layers stay distinct:
 
-srelens уже предоставляет:
+| Layer | Owns |
+| --- | --- |
+| **Product / domain** | Delivery-first workspace shell, traces, situations, contour presets |
+| **Platform / runtime** | Capability registry, Kubernetes, streams, vault, MCP, Tauri host |
 
-- Tauri 2 desktop host и React UI;
-- web host на axum и TUI;
-- Rust capability registry как единый backend contract;
-- автоматическую публикацию capabilities в desktop, web API и MCP;
-- Kubernetes operations, streams, logs, exec, port-forward, Helm и metrics;
-- safety annotations и MCP consent policy;
-- ранний declarative extension host.
+The product shell is **not** derived from cluster / resource-kind navigation.
 
-## Почему не extension в текущем API
+---
 
-Текущий extension API ориентирован на декларативные Kubernetes-приложения. Он
-может связывать UI contributions с разрешёнными host capabilities, но не даёт
-произвольному расширению безопасно выполнять HTTP-запросы к Bitbucket, Jenkins
-и Jira. Для MVP внешние коннекторы рациональнее реализовать как native Rust
-crates/capabilities в форке. Вынесение в extension возможно после появления
-host-owned HTTP/credential broker.
+## Diagrams
 
-## Предлагаемая структура
+Three editorial diagrams (diagram-design · Lens teal `#00a7a0`). Open the HTML in a browser for the full SVG.
+
+| # | File | What it shows |
+| --- | --- | --- |
+| 1 | [`diagrams/01-ui-shell.html`](diagrams/01-ui-shell.html) | How the UI is composed: AppGate → Workspace shell → screens → Classic escape |
+| 2 | [`diagrams/02-screen-flows.html`](diagrams/02-screen-flows.html) | How screens connect: First-run, Home, Deliveries, Trace, Explore, Settings |
+| 3 | [`diagrams/03-backend.html`](diagrams/03-backend.html) | Backend stack: surfaces → registry → correlation → adapters → vault → externals |
+
+```text
+docs/devops-cockpit/diagrams/
+  01-ui-shell.html      ← UI composition
+  02-screen-flows.html  ← navigation / handoffs
+  03-backend.html       ← crates + capabilities
+```
+
+---
+
+## 1. UI organization
+
+### Entry
+
+`AppGate` (`apps/desktop/src/AppGate.tsx`) is the root after auth:
+
+- Default surface: **workspace** (`localStorage srelens.productSurface`).
+- Escape hatch: **classic** Kubernetes IDE (`App.tsx`).
+- Desktop workspace always mounts `VaultGate` so Settings → DevOps can write connector secrets into `secrets.enc`.
+
+### Workspace shell
+
+`WorkspaceApp` (`apps/desktop/src/workspace/WorkspaceApp.tsx`):
+
+```text
+┌──────────┬────────────────────────────────────────────┐
+│ Rail     │  Active screen (route-driven)              │
+│ Home     │                                            │
+│ Deliveries│  First-run | Home | Deliveries | Trace    │
+│ Kubernetes│  Connections | Settings | K8s Explorer    │
+│ ──────── │                                            │
+│ Connections│  ⌘K palette overlays any screen          │
+│ Settings │                                            │
+└──────────┴────────────────────────────────────────────┘
+```
+
+Routes (`workspace/nav.ts`):
+
+| Route | Screen | Role |
+| --- | --- | --- |
+| `first-run` | First-run | Contour presets; skip → Home |
+| `home` | Home | Situation sections → open delivery by id |
+| `deliveries` | Deliveries | Filterable list |
+| `delivery` + `id` | Delivery Trace | Fixture + live `devops.traceDelivery` overlay |
+| `connections` | Connections | Status + shared DevOps settings form |
+| `settings` | Settings | Contours, vault credentials, classic escape |
+| `kubernetes` | Kubernetes Explorer | Local context picker; classic for deep ops |
+
+**Command palette** (`WorkspacePalette`): ⌘K / Ctrl+K → nav routes + fixture deliveries.
+
+**Mission Control** (`activeKind = "devops"`) is **removed**. DevOps configuration lives under Settings → DevOps (`DevOpsSettingsSection`).
+
+### Classic IDE (escape)
+
+Still: ClusterHotbar, Sidebar, resource tabs, Dock (logs / shell / forwards). Used when Delivery Trace → **Explore in Kubernetes** saves a `runtimeHandoff` and flips surface to classic focused on `cluster / kind / namespace / name`.
+
+---
+
+## 2. Screen relationships
+
+Primary happy path:
+
+```text
+First-run
+  ├─ Continue → Connections (apply AppFarm / Komus endpoints + vault secrets)
+  └─ Skip     → Home (fixtures)
+
+Home / Deliveries
+  └─ open delivery id → Delivery Trace
+        ├─ live overlay via devops.traceDelivery(workId)
+        ├─ empty live → keep fixture nodes; show sourceErrors if any
+        └─ Explore in Kubernetes
+              ├─ attrs present → runtimeHandoff → Classic IDE (resource focus)
+              └─ else → Kubernetes Explorer (context picker only)
+```
+
+Cross-cutting:
+
+- **Settings ↔ Connections** — same `DevOpsSettingsSection` (profiles, filters, credentials).
+- **Workspace ↔ Classic** — `productSurface` toggle; handoff is one-shot `sessionStorage`.
+- **Palette** — jump to any primary/secondary route or a known delivery without walking Home.
+
+Contour presets (`workspace/contours.ts`) seed public URLs + optional `projectFilters` (e.g. Bitbucket `CORP`). Secrets never live in presets.
+
+---
+
+## 3. Backend organization
+
+### Request path
+
+```text
+React / CLI / MCP
+  → invokeCapability | Tauri command
+  → crates/registry (single Registry)
+  → domain capability handler
+  → adapter HTTP (spawn_blocking) | kube ClientCache | vault resolve
+  → Entity / Trace (camelCase on the wire)
+```
+
+Same registry feeds desktop WebView, `srelens devops …` CLI, and MCP. Credentials never appear in capability outputs.
+
+### Capability map (DevOps-relevant)
+
+| Capability | Crate | Role |
+| --- | --- | --- |
+| `devops.traceDelivery` | correlation + registry wiring | Live join across sources; partial + `sourceErrors` |
+| `devops.traceIssue` | correlation | Fixture graph (offline demos) |
+| `devops.profiles.*` | devops-profiles | Public profile CRUD |
+| `jira.searchIssues` | jira | Issue entities |
+| `gitlab.listMergeRequests` / `listCommits` / `listPipelines` | gitlab | Change + build entities |
+| `bitbucket.listPullRequests` / `listCommits` | bitbucket | Change + commit entities |
+| `jenkins.listBuilds` | jenkins | Build entities (`sha` / `scmRevision`) |
+| `k8s.*` | kube | Runtime explorer / classic IDE |
+
+Desktop-only commands (not MCP-echoed secrets): `devops_credential_set` / `clear` / `status`.
+
+### Correlation
+
+`crates/correlation`:
+
+- `join_delivery_trace` — pure join: issue → change → commit → build → (synthesized) artifact → workload.
+- Evidence ladder: Exact digest → Strong full tag → Heuristic short SHA; never upgrade heuristic to exact.
+- Provider failure → `partial: true` + `SourceError`, not an empty “success”.
+
+`packages/core/src/lib/devops.ts` is a **thin** client: prefers `devops.traceDelivery`, falls back to fixture; TTL cache cleared on profile select/upsert.
+
+### Crates to keep
 
 ```text
 crates/
-  devops-model/       Entity, Evidence, Edge, Trace, Situation
-  bitbucket/          REST client + normalization
-  jenkins/            REST client + normalization
-  jira/               REST client + normalization
-  correlation/        deterministic edges and trace queries
-  registry/           registers connector and trace capabilities
-packages/core/
-  src/devops/          typed frontend wrappers
-apps/desktop/src/
-  components/devops/  Mission control, My work, Trace detail
+  devops-model/       Entity, Evidence, Edge, Trace, Situation, Confidence
+  devops-profiles/    profiles + CredentialRef resolution
+  jira/ gitlab/ bitbucket/ jenkins/   adapters + normalize_*
+  correlation/        fixture + join + traceDelivery orchestration types
+  registry/           registers everything once
+  capability/ kube/ streams/ mcp/     platform
+apps/desktop/src-tauri/               vault, CLI, MCP host
+packages/core/                        transport + devops wrappers
+apps/desktop/src/workspace/           product shell
 ```
 
-## Нормализованная модель
+### Auth boundary
 
-```rust
-Entity {
-  id: String,             // source-scoped stable id
-  kind: EntityKind,       // Issue, PullRequest, Commit, Build, Artifact, Workload
-  source: Source,
-  title: String,
-  url: Option<String>,
-  observed_at: DateTime,
-  attributes: JsonValue,
-}
+Profile = durable public config (URLs, auth method, projectFilters).  
+Credential = vault / session store only.  
+Adapters receive resolved username/secret inside `spawn_blocking`; UI never reads secrets back.
 
-Edge {
-  from: EntityId,
-  to: EntityId,
-  relation: Relation,
-  confidence: Exact | Strong | Heuristic,
-  evidence: Vec<Evidence>,
-}
-```
+---
 
-Связь без `evidence` запрещена. Примеры evidence:
+## 4. Related docs
 
-- `issue_key_in_branch`;
-- `build_commit_exact`;
-- `image_digest_exact`;
-- `kubernetes_revision_label`;
-- `image_tag_short_sha` (эвристика).
-
-## Capabilities первого этапа
-
-```text
-devops.listWork                 read-only
-devops.traceIssue               read-only
-devops.traceCommit              read-only
-devops.traceDeployment          read-only
-bitbucket.listPullRequests      read-only
-jenkins.listBuilds              read-only
-jira.searchIssues               read-only
-```
-
-Wire fields обязаны быть `camelCase` и явно отражаться через `serde(rename)` там,
-где Rust field отличается. Каждая capability сначала получает handler test,
-после чего регистрируется в `crates/registry` и добавляется в e2e coverage map.
-
-## Корреляция
-
-Порядок источников истинности:
-
-1. Точный image digest.
-2. Полный commit SHA из Jenkins metadata или OCI label.
-3. Kubernetes revision/deployment annotations.
-4. Jira key в branch/PR/build name.
-5. Short SHA в image tag — только heuristic.
-
-При конфликте связи не перезаписываются: trace возвращает альтернативы и
-evidence. Сбой API возвращает `partial=true` и `sourceErrors`, а не пустой список.
-
-## Credentials и безопасность
-
-- Credentials хранятся через существующий encrypted vault srelens.
-- UI не получает secret/token.
-- Логи редактируют Authorization headers и query secrets.
-- Коннекторы по умолчанию read-only.
-- Запись в Jira/Bitbucket/Jenkins — отдельный будущий scope и `requires_confirm`.
-- Web mode требует per-user connector configuration; нельзя использовать один
-  общий credential для всех пользователей без явной административной модели.
-
+- [`PRODUCT.md`](PRODUCT.md) — IA and salience
+- [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — stages
+- [`CONTOURS.md`](CONTOURS.md) — AppFarm / Komus endpoints
+- [`CMD_AGENT_HANDOFF.md`](CMD_AGENT_HANDOFF.md) — agent entry
+- [`TODO.md`](../../TODO.md) — checklist

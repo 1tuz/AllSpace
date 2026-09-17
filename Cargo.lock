@@ -6391,6 +6391,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "srelens-bitbucket"
+version = "0.13.0"
+dependencies = [
+ "base64 0.22.1",
+ "reqwest 0.13.4",
+ "rustls",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "srelens-capability",
+ "srelens-devops-model",
+ "srelens-devops-profiles",
+ "tokio",
+]
+
+[[package]]
 name = "srelens-capability"
 version = "0.13.0"
 dependencies = [
@@ -6399,6 +6415,17 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
+]
+
+[[package]]
+name = "srelens-correlation"
+version = "0.13.0"
+dependencies = [
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "srelens-capability",
+ "srelens-devops-model",
 ]
 
 [[package]]
@@ -6420,6 +6447,7 @@ dependencies = [
  "serde_json",
  "srelens-agent",
  "srelens-capability",
+ "srelens-devops-profiles",
  "srelens-kube",
  "srelens-llm",
  "srelens-mcp",
@@ -6440,6 +6468,72 @@ dependencies = [
  "thirtyfour",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "srelens-devops-model"
+version = "0.13.0"
+dependencies = [
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "srelens-devops-profiles"
+version = "0.13.0"
+dependencies = [
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "srelens-capability",
+ "tokio",
+]
+
+[[package]]
+name = "srelens-gitlab"
+version = "0.13.0"
+dependencies = [
+ "reqwest 0.13.4",
+ "rustls",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "srelens-capability",
+ "srelens-devops-model",
+ "srelens-devops-profiles",
+ "tokio",
+]
+
+[[package]]
+name = "srelens-jenkins"
+version = "0.13.0"
+dependencies = [
+ "base64 0.22.1",
+ "reqwest 0.13.4",
+ "rustls",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "srelens-capability",
+ "srelens-devops-model",
+ "srelens-devops-profiles",
+ "tokio",
+]
+
+[[package]]
+name = "srelens-jira"
+version = "0.13.0"
+dependencies = [
+ "reqwest 0.13.4",
+ "rustls",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "srelens-capability",
+ "srelens-devops-model",
+ "srelens-devops-profiles",
+ "tokio",
 ]
 
 [[package]]
@@ -6531,7 +6625,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "srelens-bitbucket",
  "srelens-capability",
+ "srelens-correlation",
+ "srelens-devops-profiles",
+ "srelens-gitlab",
+ "srelens-jenkins",
+ "srelens-jira",
  "srelens-kube",
  "srelens-mcp",
  "srelens-plugin-host",

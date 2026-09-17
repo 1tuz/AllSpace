@@ -41,6 +41,10 @@ Live-cluster suites are `#[ignore]`d and need an explicit run — see [Testing s
 
 ## Architecture
 
+> **This fork:** product UI entry is `apps/desktop/src/workspace/` (delivery-first
+> shell). Platform capabilities stay in the registry / Kubernetes crates.
+> See [`docs/devops-cockpit/ARCHITECTURE.md`](devops-cockpit/ARCHITECTURE.md).
+
 srelens builds **two hosts on one shared core**. The desktop app (Tauri) and the
 headless web server (axum) both assemble the *same* capability registry and drive
 the *same* streaming cores; they differ only in how they reach the user — Tauri

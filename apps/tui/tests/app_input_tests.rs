@@ -5038,9 +5038,9 @@ async fn argo_view_key_bindings_and_actions() {
     press(&mut app, ch('r')).await;
     assert!(toast(&app).contains("Refreshing ArgoCD applications"));
 
-    // 8. Open Git repo ('g') - app1 has repo_url configured
-    press(&mut app, ch('g')).await;
-    assert!(toast(&app).contains("Git repo") || toast(&app).contains("Could not open browser"));
+    // Opening a repository delegates to macOS `open`. Keep that OS side effect
+    // outside this in-process input test: exercising it here launches the
+    // fixture URL in the user's browser during every `cargo test` run.
 
     // 9. Config view ('c')
     press(&mut app, ch('c')).await;
@@ -5206,8 +5206,8 @@ async fn argo_detail_view_key_navigation_and_actions() {
     press(&mut app, ch('c')).await;
     assert!(toast(&app).contains("Copied deep link"));
 
-    press(&mut app, ch('g')).await;
-    assert!(toast(&app).contains("Git repo") || toast(&app).contains("Could not open browser"));
+    // See `argo_view_key_bindings_and_actions`: repository opening is an OS
+    // side effect and must not be exercised with the fixture URL in tests.
 
     // 4. Exit detail view via 'q'
     press(&mut app, ch('q')).await;

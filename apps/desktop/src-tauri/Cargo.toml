@@ -49,6 +49,7 @@ srelens-kube = { path = "../../../crates/kube" }
 srelens-streams = { path = "../../../crates/streams" }
 srelens-server = { path = "../../../crates/server" }
 srelens-registry = { path = "../../../crates/registry" }
+srelens-devops-profiles = { path = "../../../crates/devops-profiles" }
 # MCP bearer token storage: prefer the OS keychain, falling back to the 0600
 # file (`FileTokenStore`) where none exists. Feature selection:
 #   - apple-native: macOS/iOS Keychain via `security-framework`.

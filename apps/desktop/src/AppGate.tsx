@@ -1,21 +1,44 @@
 import { useEffect, useState } from "react";
 import { App } from "./App";
+import { WorkspaceApp } from "./workspace/WorkspaceApp";
 import { LoginScreen } from "./components/LoginScreen";
+import { VaultGate } from "./components/VaultGate";
 import { fetchMe, type Me } from "@srelens/core";
-import { isWeb } from "@srelens/core/platform";
+import { isTauri, isWeb } from "@srelens/core/platform";
 import { LoadingState } from "./ui";
+import { saveRuntimeHandoff, type RuntimeHandoff } from "./workspace/runtimeHandoff";
 
 type Auth = { status: "pending" } | { status: "authed"; me: Me | null } | { status: "anon" };
 
+type Surface = "workspace" | "classic";
+
+const SURFACE_KEY = "srelens.productSurface";
+
+function loadSurface(): Surface {
+  try {
+    return localStorage.getItem(SURFACE_KEY) === "classic" ? "classic" : "workspace";
+  } catch {
+    return "workspace";
+  }
+}
+
+function saveSurface(surface: Surface): void {
+  try {
+    localStorage.setItem(SURFACE_KEY, surface);
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
- * Auth gate in front of the app shell. On Tauri there is no server session to
- * probe — the desktop binary talks to the local kube API directly — so it
- * renders `<App/>` immediately with no network call. On web it probes
- * `fetchMe()` once: pending shows a spinner, null routes to `<LoginScreen/>`,
- * an identity renders `<App/>`.
+ * Auth gate, then delivery-first workspace by default.
+ * Classic Kubernetes IDE remains an escape hatch until Stage 4 explorer lands.
+ * Desktop always mounts VaultGate on the workspace surface so DevOps connector
+ * secrets can be stored in the encrypted vault.
  */
 export default function AppGate() {
   const [auth, setAuth] = useState<Auth>(isWeb ? { status: "pending" } : { status: "authed", me: null });
+  const [surface, setSurface] = useState<Surface>(loadSurface);
 
   useEffect(() => {
     if (!isWeb) return;
@@ -28,6 +51,12 @@ export default function AppGate() {
     };
   }, []);
 
+  function openClassicIde(target?: RuntimeHandoff) {
+    if (target) saveRuntimeHandoff(target);
+    saveSurface("classic");
+    setSurface("classic");
+  }
+
   if (auth.status === "pending") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -36,5 +65,40 @@ export default function AppGate() {
     );
   }
   if (auth.status === "anon") return <LoginScreen />;
-  return <App />;
+
+  const body =
+    surface === "classic" ? (
+      <div className="flex h-screen min-h-0 flex-col">
+        <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-1.5 text-xs">
+          <span className="text-muted-foreground">Classic Kubernetes IDE — transitional escape hatch</span>
+          <button
+            type="button"
+            className="font-medium underline-offset-2 hover:underline"
+            onClick={() => {
+              saveSurface("workspace");
+              setSurface("workspace");
+            }}
+          >
+            Back to workspace
+          </button>
+        </div>
+        <div className="min-h-0 flex-1">
+          <App />
+        </div>
+      </div>
+    ) : (
+      <WorkspaceApp onOpenClassicIde={openClassicIde} />
+    );
+
+  // Classic App already mounts its own VaultGate. Workspace needs one here so
+  // Settings → DevOps can write connector credentials into secrets.enc.
+  if (surface === "workspace" && isTauri()) {
+    return (
+      <>
+        {body}
+        <VaultGate />
+      </>
+    );
+  }
+  return body;
 }

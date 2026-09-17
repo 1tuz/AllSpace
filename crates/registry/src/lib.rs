@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use srelens_capability::{Capability, Registry};
+pub use srelens_devops_profiles::{CredentialStore, SessionCredentials};
 use srelens_kube::client_cache::ClientCache;
 
 mod catalog;
@@ -192,16 +193,26 @@ pub fn build_registry_with_paths(
     cache: Arc<ClientCache>,
     kubeconfig_paths: Vec<PathBuf>,
 ) -> Registry {
-    build_registry_with_paths_and_settings(cache, kubeconfig_paths, None)
+    build_registry_with_paths_and_settings(
+        cache,
+        kubeconfig_paths,
+        None,
+        Arc::new(SessionCredentials::new()),
+    )
 }
 
 /// Build a registry and optionally add the durable desktop settings surface.
 /// Web-server registries omit it because web settings are per-user SQLite
 /// rows; desktop GUI and MCP callers pass the stable desktop settings path.
+///
+/// `credentials` is the connector side of that same boundary: the desktop
+/// passes its vault, every other host passes process-lifetime session
+/// credentials, and no capability ever receives a value it can echo back.
 pub fn build_registry_with_paths_and_settings(
     cache: Arc<ClientCache>,
     kubeconfig_paths: Vec<PathBuf>,
     settings_path: Option<PathBuf>,
+    credentials: Arc<dyn CredentialStore>,
 ) -> Registry {
     let mut reg = Registry::new();
 
@@ -210,6 +221,7 @@ pub fn build_registry_with_paths_and_settings(
         "health check; echoes the input back as { pong: <input> }",
         |input| async move { Ok(json!({ "pong": input })) },
     ));
+    reg.register(srelens_correlation::trace_issue_capability());
 
     reg.register(srelens_kube::contexts::list_contexts_capability(
         cache.clone(),
@@ -451,6 +463,81 @@ pub fn build_registry_with_paths_and_settings(
         let core = Arc::new(reg.clone());
         extensions::register(&mut reg, path.with_extension("extensions.json"), core);
         settings::register(&mut reg, path);
+        let settings_get = reg
+            .get("settings.get")
+            .expect("settings registration must add settings.get")
+            .clone();
+        let settings_set = reg
+            .get("settings.set")
+            .expect("settings registration must add settings.set")
+            .clone();
+        srelens_devops_profiles::register(&mut reg, settings_get.clone(), settings_set);
+        reg.register(srelens_jira::search_issues_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|| Ok(Arc::new(srelens_jira::ReqwestJiraTransport::new()?))),
+        ));
+        reg.register(srelens_gitlab::list_merge_requests_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::new()?))),
+        ));
+        reg.register(srelens_gitlab::list_commits_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::new()?))),
+        ));
+        reg.register(srelens_gitlab::list_pipelines_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::new()?))),
+        ));
+        reg.register(srelens_bitbucket::list_pull_requests_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|| Ok(Arc::new(srelens_bitbucket::ReqwestBitbucketTransport::new()?))),
+        ));
+        reg.register(srelens_bitbucket::list_commits_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|| Ok(Arc::new(srelens_bitbucket::ReqwestBitbucketTransport::new()?))),
+        ));
+        reg.register(srelens_jenkins::list_builds_capability(
+            credentials,
+            settings_get,
+            Arc::new(|| Ok(Arc::new(srelens_jenkins::ReqwestJenkinsTransport::new()?))),
+        ));
+        let delivery_sources = srelens_correlation::DeliverySourceCaps {
+            jira_search: reg
+                .get("jira.searchIssues")
+                .expect("jira.searchIssues registered")
+                .clone(),
+            gitlab_mrs: reg
+                .get("gitlab.listMergeRequests")
+                .expect("gitlab.listMergeRequests registered")
+                .clone(),
+            gitlab_commits: reg
+                .get("gitlab.listCommits")
+                .expect("gitlab.listCommits registered")
+                .clone(),
+            gitlab_pipelines: reg
+                .get("gitlab.listPipelines")
+                .expect("gitlab.listPipelines registered")
+                .clone(),
+            bitbucket_prs: reg
+                .get("bitbucket.listPullRequests")
+                .expect("bitbucket.listPullRequests registered")
+                .clone(),
+            bitbucket_commits: reg
+                .get("bitbucket.listCommits")
+                .expect("bitbucket.listCommits registered")
+                .clone(),
+            jenkins_builds: reg
+                .get("jenkins.listBuilds")
+                .expect("jenkins.listBuilds registered")
+                .clone(),
+        };
+        reg.register(srelens_correlation::trace_delivery_capability(delivery_sources));
     }
 
     reg
@@ -463,6 +550,7 @@ pub fn build_registry_with(cache: Arc<ClientCache>) -> Registry {
         cache,
         default_kubeconfig_paths(),
         default_settings_path(),
+        Arc::new(SessionCredentials::new()),
     )
 }
 
@@ -511,6 +599,26 @@ mod tests {
         assert!(ids.contains(&"ping"));
         assert!(ids.contains(&"k8s.listContexts"));
         assert!(ids.contains(&"k8s.clusterInfo"));
+        assert!(ids.contains(&"devops.traceIssue"));
+        assert!(ids.contains(&"devops.traceDelivery"));
+        assert!(ids.contains(&"bitbucket.listPullRequests"));
+        assert!(ids.contains(&"jenkins.listBuilds"));
+    }
+
+    #[tokio::test]
+    async fn devops_trace_issue_uses_the_callers_camel_case_payload() {
+        let reg = build_registry();
+        let trace = reg
+            .invoke("devops.traceIssue", json!({ "issueKey": "OPS-142" }))
+            .await
+            .expect("fixture trace is available");
+
+        assert_eq!(trace["nodes"][0]["id"], "jira:OPS-142");
+        assert!(trace["edges"].as_array().is_some_and(|edges| !edges.is_empty()));
+        assert!(reg
+            .invoke("devops.traceIssue", json!({ "issue_key": "OPS-142" }))
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -563,6 +671,7 @@ mod tests {
             cache,
             vec![std::path::PathBuf::from("/nonexistent")],
             default_settings_path(),
+            Arc::new(SessionCredentials::new()),
         );
         let mut ids = reg.ids();
         ids.sort();
@@ -579,6 +688,40 @@ mod tests {
         assert!(!reg.ids().contains(&"settings.get"));
         assert!(!reg.ids().contains(&"settings.set"));
         for id in ["extensions.catalog", "extensions.catalogManifest", "extensions.list", "extensions.configure", "extensions.validate", "extensions.read"] { assert!(reg.get(id).is_none()); }
+        assert!(reg.get("devops.profiles.list").is_none());
+        assert!(reg.get("jira.searchIssues").is_none());
+        assert!(reg.get("gitlab.listMergeRequests").is_none());
+    }
+
+    #[tokio::test]
+    async fn desktop_registry_exposes_empty_devops_profile_list() {
+        let settings = tempfile::tempdir().unwrap();
+        let registry = build_registry_with_paths_and_settings(
+            ClientCache::new_many(vec![]),
+            vec![],
+            Some(settings.path().join("settings.json")),
+            Arc::new(SessionCredentials::new()),
+        );
+
+        let profiles = registry.invoke("devops.profiles.list", json!({})).await.unwrap();
+        assert_eq!(profiles, json!({ "activeProfileId": null, "profiles": [] }));
+    }
+
+    #[tokio::test]
+    async fn a_connector_without_configured_credentials_names_the_reason() {
+        let settings = tempfile::tempdir().unwrap();
+        let registry = build_registry_with_paths_and_settings(
+            ClientCache::new_many(vec![]),
+            vec![],
+            Some(settings.path().join("settings.json")),
+            Arc::new(SessionCredentials::new()),
+        );
+
+        let error = registry
+            .invoke("jira.searchIssues", json!({ "issueKeys": ["OPS-142"] }))
+            .await
+            .expect_err("no profile is selected yet");
+        assert!(error.to_string().contains("no DevOps profile is selected"), "{error}");
     }
 
     #[test]

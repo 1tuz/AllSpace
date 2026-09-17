@@ -255,17 +255,12 @@ beforeEach(() => {
 });
 
 describe("App", () => {
-  it("checks for updates on startup and toasts, linking to the Updates section", async () => {
-    // The update-check poll is desktop-only (Task 5 gates it behind
-    // `isTauri()`) — give this test a Tauri context so the effect runs.
+  it("does not contact the upstream updater on startup", async () => {
     (window as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
-    checkForUpdateMock.mockResolvedValue({ version: "0.3.0", currentVersion: "0.2.0", notes: "" });
     render(<App />);
-    await waitFor(() => expect(notifyUpdateAvailableMock).toHaveBeenCalledWith("0.3.0", expect.any(Function)));
-    // The toast's action opens the Settings tab (deep-linked to Updates).
-    const onView = notifyUpdateAvailableMock.mock.calls[0][1] as () => void;
-    onView();
-    expect(await screen.findByTestId("settings")).toBeDefined();
+    await waitFor(() => expect(listContextsMock).toHaveBeenCalled());
+    expect(checkForUpdateMock).not.toHaveBeenCalled();
+    expect(notifyUpdateAvailableMock).not.toHaveBeenCalled();
     delete (window as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__;
   });
 

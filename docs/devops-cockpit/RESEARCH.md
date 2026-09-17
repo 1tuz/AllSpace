@@ -1,47 +1,52 @@
-# Результаты изучения исходных проектов
+# Research notes
 
-## Salience — референс продукта и интерфейса
+## Salience — product reference (concepts only)
 
-Из документации Salience перенесены идеи:
+Public docs used:
 
-- entities, correlations и situations как основная модель;
-- My Work/stand-up как представление работы пользователя;
-- Mission: ticket, PR и CI в одном контексте;
-- attention-first UI вместо набора несвязанных dashboards;
-- command palette, timeline и MCP как равноправные поверхности;
-- локальная обработка и осторожная работа с credentials.
-
-Не копируются branding, assets или закрытая реализация Salience. Используется
-только публично описанная продуктовая модель.
-
-## srelens — техническая основа
-
-Подтверждено в коде и документации ветки `dev`:
-
-- React 19 + Tauri 2 desktop;
-- общий Rust core для desktop и axum web host;
-- единый capability registry;
-- каждая capability автоматически становится Tauri/Web/MCP surface;
-- read/write safety annotations и consent policy;
-- Kubernetes browse/edit/apply/delete/scale/restart, logs, exec, debug,
-  port-forward, Helm, metrics, CRDs и RBAC preflight;
-- extension API 0.1 является declarative и Kubernetes-centric.
-
-## Вывод
-
-srelens подходит как фундамент: Kubernetes IDE переписывать не нужно. Основная
-новая ценность форка — connector normalization и correlation graph. В первую
-версию входят Bitbucket, Jenkins и Jira; SSH и Ansible отложены.
-
-## Исходные публичные материалы
-
-- https://github.com/srelens/srelens/tree/dev
-- https://github.com/srelens/srelens/blob/dev/docs/DEVELOPMENT.md
-- https://github.com/srelens/srelens/blob/dev/docs/USAGE.md
-- https://github.com/srelens/srelens/blob/dev/docs/MCP.md
-- https://github.com/srelens/srelens/tree/dev/docs/extensions
 - https://clegginabox.github.io/salience-macos/docs/concepts
 - https://clegginabox.github.io/salience-macos/docs/map
 - https://clegginabox.github.io/salience-macos/docs/my-work
 - https://clegginabox.github.io/salience-macos/docs/mcp
+- https://github.com/clegginabox/salience-macos
 
+Borrowed concepts:
+
+- entities, correlations, situations;
+- work as primary UI unit;
+- attention / loudness instead of metric walls;
+- My Work / delivery-oriented views;
+- command palette;
+- same normalized graph for UI and MCP agents.
+
+Not copied: branding, assets, exact layout, closed implementation details.
+
+Exact Salience product name matters: do not confuse with unrelated “Salience”
+products.
+
+## SRE Lens — platform reference
+
+Baseline: `dev` at `01f2f56885e1a46182246bc47cc787e1245db2a9`.
+
+Confirmed:
+
+- React 19 + Tauri 2 desktop; axum web host; TUI;
+- shared Rust capability registry → desktop / web / MCP;
+- Kubernetes browse/edit/apply, logs, exec, forward, Helm, metrics, CRDs, RBAC;
+- vault, safety annotations, MCP consent;
+- declarative extension API is Kubernetes-centric (not sufficient alone for
+  arbitrary HTTP to Jira/GitLab/Bitbucket/Jenkins).
+
+## Conclusion (corrected)
+
+```text
+SRE Lens backend / platform foundation: retain
+SRE Lens product shell / IA: replace
+```
+
+Old conclusion (“Kubernetes IDE does not need rewriting as the product”) was
+wrong for this fork’s goal. The IDE surface stays as a **secondary** explorer
+over retained platform capabilities. The product shell becomes delivery-first.
+
+Primary instruction:
+[`DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md`](../../DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md).

@@ -45,6 +45,7 @@ export * from "./lib/k8sWorkload";
 export * from "./lib/kinds";
 export * from "./lib/kubectlMapper";
 export * from "./lib/llm";
+export * from "./lib/devops";
 export * from "./lib/logBuffer";
 export * from "./lib/logConnectionStatus";
 export * from "./lib/logsStream";

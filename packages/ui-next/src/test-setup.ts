@@ -10,3 +10,13 @@ afterEach(() => cleanup());
 afterEach(() => {
   if (typeof localStorage !== "undefined") localStorage.clear();
 });
+
+// xterm feature-detects a 2D canvas as its module loads. The UI-next unit
+// suite does not exercise terminal drawing, and jsdom otherwise reports this
+// missing browser API once per import.
+if (typeof window !== "undefined") {
+  Object.defineProperty(window.HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: () => ({}),
+  });
+}

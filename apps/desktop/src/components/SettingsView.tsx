@@ -73,6 +73,7 @@ import { updateRequestTimeout } from "@srelens/core";
 import { ContextAvatar, CONTEXT_LOGO_OPTIONS } from "./ContextAvatar";
 import { McpSettingsSection } from "./McpSettingsSection";
 import { AssistantSettingsSection } from "./AssistantSettingsSection";
+import { DevOpsSettingsSection } from "./DevOpsSettingsSection";
 import { SecuritySettingsSection } from "./SecuritySettingsSection";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { AppLogView } from "./AppLogView";
@@ -128,6 +129,7 @@ const SETTINGS_SECTIONS: Array<{
   { id: "layout", label: "Layout", description: "Panel dimensions", icon: LayoutPanelLeft },
   { id: "kubernetes", label: "Kubernetes", description: "Workspace defaults", icon: Network },
   { id: "contexts", label: "Contexts", description: "Names, logos and colors", icon: Boxes },
+  { id: "devops", label: "DevOps", description: "Jira and GitLab profiles", icon: Network },
   { id: "mcp", label: "MCP", description: "Agent access and client config", icon: Plug },
   { id: "assistant", label: "Assistant", description: "srelens agent API keys and model", icon: Bot },
   { id: "security", label: "Security", description: "Master password and biometric unlock", icon: Shield },
@@ -193,7 +195,7 @@ export function SettingsView({
   const visibleSections = isTauri()
     ? SETTINGS_SECTIONS
     : SETTINGS_SECTIONS.filter(
-        (s) => s.id !== "mcp" && s.id !== "assistant" && s.id !== "security" && s.id !== "updates" && s.id !== "extensions",
+        (s) => s.id !== "devops" && s.id !== "mcp" && s.id !== "assistant" && s.id !== "security" && s.id !== "updates" && s.id !== "extensions",
       );
 
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -1068,6 +1070,15 @@ export function SettingsView({
                   )}
                 </div>
                 ))}
+            </SectionPanel>
+          )}
+
+          {section === "devops" && isTauri() && (
+            <SectionPanel
+              title="DevOps"
+              description="Configure local Jira and GitLab profiles. Stored credentials never return to the interface."
+            >
+              <DevOpsSettingsSection />
             </SectionPanel>
           )}
 

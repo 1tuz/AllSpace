@@ -26,6 +26,10 @@ const EXCLUDED: Record<string, string> = {
   "toolbox.upgradePlugin": "toolbox installs live in the Toolbox view",
   "toolbox.removePlugin": "toolbox installs live in the Toolbox view",
   "settings.set": "settings writes are performed by controls in Settings and other stateful views",
+  "devops.profiles.upsert":
+    "profile configuration belongs in the future DevOps settings flow, not a resource-targeted palette action",
+  "devops.profiles.select":
+    "active profile selection belongs in the future DevOps settings flow, not a resource-targeted palette action",
 };
 
 describe("command palette action coverage", () => {

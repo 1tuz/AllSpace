@@ -1,0 +1,107 @@
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const listContexts = vi.hoisted(() => vi.fn());
+const devopsTraceDelivery = vi.hoisted(() => vi.fn());
+
+vi.mock("@srelens/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@srelens/core")>()),
+  listContexts,
+  devopsTraceDelivery,
+}));
+
+import { WorkspaceApp } from "./WorkspaceApp";
+import { FIRST_RUN_KEY } from "./nav";
+import { APPFARM_DELIVERY, KOMUS_DELIVERY, homeSections } from "./fixtures";
+
+beforeEach(() => {
+  localStorage.setItem(FIRST_RUN_KEY, "1");
+  listContexts.mockReset();
+  listContexts.mockResolvedValue({ contexts: [{ name: "prod-eu", cluster: "prod" }], error: undefined });
+  devopsTraceDelivery.mockReset();
+  // Empty live answer keeps fixture nodes on screen (Stage 1 shell still works offline).
+  devopsTraceDelivery.mockResolvedValue({
+    nodes: [],
+    edges: [],
+    situations: [],
+    partial: false,
+    sourceErrors: [],
+  });
+});
+
+describe("fixtures", () => {
+  it("keeps Komus delivery free of Jira nodes", () => {
+    expect(KOMUS_DELIVERY.nodes.some((n) => n.source === "jira")).toBe(false);
+    expect(KOMUS_DELIVERY.edges.some((e) => e.confidence === "heuristic")).toBe(false);
+  });
+
+  it("keeps AppFarm heuristic runtime join labeled heuristic", () => {
+    const edge = APPFARM_DELIVERY.edges.find((e) => e.to.startsWith("runtime:"));
+    expect(edge?.confidence).toBe("heuristic");
+  });
+
+  it("groups Home without requiring a cluster", () => {
+    const sections = homeSections();
+    expect(sections.needsAttention.some((d) => d.id === APPFARM_DELIVERY.id)).toBe(true);
+    expect(sections.building.some((d) => d.id === KOMUS_DELIVERY.id)).toBe(true);
+  });
+});
+
+describe("WorkspaceApp", () => {
+  it("renders Home without selecting a Kubernetes context", () => {
+    render(<WorkspaceApp initialRoute={{ name: "home" }} />);
+    expect(screen.getByTestId("home-screen")).toBeDefined();
+    expect(screen.getByText("What needs attention")).toBeDefined();
+    expect(screen.getByText(/No Kubernetes context required/)).toBeDefined();
+    expect(screen.getByText(/OPS-142/)).toBeDefined();
+  });
+
+  it("opens fixture Delivery Trace with exact and heuristic confidence words", () => {
+    render(<WorkspaceApp initialRoute={{ name: "delivery", id: APPFARM_DELIVERY.id }} />);
+    const detail = screen.getByTestId("delivery-detail");
+    expect(within(detail).getByText(/Delivery trace/)).toBeDefined();
+    expect(within(detail).getAllByLabelText("confidence exact").length).toBeGreaterThan(0);
+    expect(within(detail).getAllByLabelText("confidence heuristic").length).toBeGreaterThan(0);
+    expect(within(detail).getByText(/MR !721 merged/)).toBeDefined();
+  });
+
+  it("shows Komus partial source errors instead of empty success", () => {
+    render(<WorkspaceApp initialRoute={{ name: "delivery", id: KOMUS_DELIVERY.id }} />);
+    expect(screen.getByText(/Partial trace/)).toBeDefined();
+    expect(screen.getByTestId("source-errors")).toBeDefined();
+    expect(screen.getByText(/folder listing timed out/)).toBeDefined();
+  });
+
+  it("lists Connections without a cluster", () => {
+    render(<WorkspaceApp initialRoute={{ name: "connections" }} />);
+    expect(screen.getByTestId("connections-screen")).toBeDefined();
+    expect(screen.getByText("https://sdlc.go.rshbank.ru/jira")).toBeDefined();
+    expect(screen.getByText("https://bitbucket-app.komus.net")).toBeDefined();
+  });
+
+  it("reaches Kubernetes contexts through the explorer, not global hotbar", async () => {
+    render(<WorkspaceApp initialRoute={{ name: "kubernetes" }} />);
+    expect(screen.getByTestId("kubernetes-explorer")).toBeDefined();
+    expect(listContexts).toHaveBeenCalled();
+    expect(await screen.findByRole("combobox", { name: "Cluster context" })).toBeDefined();
+    expect(screen.queryByText(/Selected context/)).toBeNull();
+  });
+
+  it("navigates Home row into Delivery Trace", () => {
+    render(<WorkspaceApp initialRoute={{ name: "home" }} />);
+    fireEvent.click(screen.getByRole("button", { name: /OPS-142/ }));
+    expect(screen.getByTestId("delivery-detail")).toBeDefined();
+  });
+
+  it("opens the delivery command palette with ⌘K", () => {
+    render(<WorkspaceApp initialRoute={{ name: "home" }} />);
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(screen.getByTestId("workspace-palette")).toBeDefined();
+    expect(screen.getByText(/OPS-142 Retry worker/)).toBeDefined();
+  });
+
+  it("offers Explore in Kubernetes on a runtime node", () => {
+    render(<WorkspaceApp initialRoute={{ name: "delivery", id: APPFARM_DELIVERY.id }} />);
+    expect(screen.getByRole("button", { name: /Explore in Kubernetes/ })).toBeDefined();
+  });
+});

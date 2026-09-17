@@ -582,8 +582,47 @@ async fn run_suite() {
         cache(),
         kubeconfig_paths(),
         Some(settings.0.clone()),
+        Arc::new(srelens_registry::SessionCredentials::new()),
     );
     let mut h = Harness::new(reg);
+
+    // === DevOps fixture trace: registry-only, no external connector ========
+    let trace = h
+        .ok("devops.traceIssue", json!({ "issueKey": "OPS-142" }))
+        .await;
+    assert_eq!(trace["nodes"][0]["id"], "jira:OPS-142");
+    assert_eq!(trace["partial"], false);
+
+    // === DevOps profiles: durable public config, no credentials ============
+    let profiles = h.ok("devops.profiles.list", json!({})).await;
+    assert_eq!(profiles["profiles"], json!([]));
+    let profiles = h
+        .ok(
+            "devops.profiles.upsert",
+            json!({
+                "profile": {
+                    "id": "e2e", "label": "E2E", "providers": [{
+                        "provider": "jira", "baseUrl": "https://jira.example.test", "authMethod": "session"
+                    }]
+                },
+                "select": true
+            }),
+        )
+        .await;
+    assert_eq!(profiles["activeProfileId"], "e2e");
+    let profiles = h
+        .ok("devops.profiles.select", json!({ "profileId": "e2e" }))
+        .await;
+    assert_eq!(profiles["activeProfileId"], "e2e");
+
+    // === A connector with a profile but no credential names that reason ====
+    let refusal = h
+        .err("jira.searchIssues", json!({ "issueKeys": ["OPS-142"] }))
+        .await;
+    assert!(
+        refusal.contains("no credential is stored for e2e/jira"),
+        "{refusal}"
+    );
 
     // === Durable settings: real file round-trip, isolated from app data ===
     println!("=== settings ===");

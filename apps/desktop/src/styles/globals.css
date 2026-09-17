@@ -130,3 +130,16 @@
     @apply font-sans;
     }
 }
+
+/* Workspace shell materials — structural only; respect reduced transparency. */
+.workspace-shell__rail {
+  backdrop-filter: saturate(1.2) blur(12px);
+  background-color: color-mix(in oklab, var(--color-muted, canvas) 30%, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workspace-shell__rail {
+    backdrop-filter: none;
+    background-color: var(--color-muted, canvas);
+  }
+}

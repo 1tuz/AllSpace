@@ -1,63 +1,71 @@
-# План реализации
+# Implementation plan
 
-## Этап 0 — выполнено в этом архиве
+> Canonical direction:
+> [`DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md`](../../DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md).
 
-- Изучена архитектура и документация srelens.
-- Зафиксированы продуктовые паттерны Salience.
-- Создан автономный UI-прототип.
-- Реализован и протестирован детерминированный correlation engine на demo data.
-- Зафиксирована целевая модель и границы MVP.
+Do not add new DevOps screens to the legacy SRE Lens cluster-first shell.
+Mission Control as `activeKind = "devops"` is legacy transitional UI.
 
-## Этап 1 — domain core
+## Completed foundation (retain)
 
-1. Создать crate `srelens-devops-model` без сетевых зависимостей.
-2. Перенести типы Entity/Edge/Evidence/Trace/Situation.
-3. Написать fixtures и unit/property tests на неоднозначные связи.
-4. Создать crate `srelens-correlation`.
-5. Добавить capability `devops.traceIssue` с fixture repository.
-6. Зарегистрировать её и обновить capability catalog.
+- Domain crates: `devops-model`, `correlation`, `devops-profiles`.
+- Provider crates: `jira`, `gitlab`, `bitbucket`, `jenkins` (read capabilities).
+- Desktop vault credential store + settings entry for profiles.
+- Backend `devops.traceDelivery` join (evidence / partial / sourceErrors).
+- Fixture `devops.traceIssue` kept for offline demos; thin core wrapper prefers live.
+- Prototype in `prototypes/devops-cockpit` (spike only).
 
-Exit: MCP и backend возвращают trace на fixture данных; UI ещё не нужен.
+## Stage 1 — Architectural seam (done in tree)
 
-## Этап 2 — Jira и Bitbucket
+Goal: minimal product shell independent of cluster-first root navigation.
 
-1. Добавить настройки base URL, auth method и project filters.
-2. Поддержать Bitbucket Cloud и определить отдельный adapter для Data Center;
-   не смешивать их API в одном client.
-3. Нормализовать issue, PR, branch и commits.
-4. Добавить pagination, rate-limit/backoff и bounded cache.
-5. Реализовать `listWork` и `traceIssue`.
+Done:
 
-Exit: trace `Issue → PR → Commit` работает на реальных read-only accounts.
+1. Document delivery-first IA (this folder + handoff + TODO + STAGE1).
+2. Standalone workspace shell: Home, Deliveries, Delivery Trace, Connections,
+   Settings stub, First-run empty state (`apps/desktop/src/workspace/`).
+3. Fixture AppFarm and Komus journeys (no real company credentials).
+4. Kubernetes Explorer entry with local cluster selector via `listContexts`;
+   classic IDE remains escape hatch.
+5. Tests in `WorkspaceApp.test.tsx`.
 
-## Этап 3 — Jenkins
+Exit criteria met for fixture shell. Live providers = Stage 3.
 
-1. Поддержать base URL + username/API token и crumb issuer для будущих writes.
-2. Начать с Pipeline/Multibranch jobs.
-3. Читать build actions/parameters, SCM revision и artifacts.
-4. Извлекать image digest/tag из явных build metadata; console log parsing
-   оставить fallback с низкой confidence.
+## Stage 2 — Product shell on fixture data (done)
 
-Exit: trace доходит до точного build и artifact.
+Deliveries filter, Home sections, First-run presets, workspace ⌘K palette,
+Mission Control nesting **removed** (Settings → DevOps remains).
 
-## Этап 4 — Kubernetes join
+## Stage 3 — Real read-only graph (done for adapters + join)
 
-1. Переиспользовать существующие list/get capabilities и client cache.
-2. Извлекать images из Pod templates и actual Pod statuses.
-3. Сопоставлять digest прежде tag; учитывать init/sidecar containers.
-4. Открывать существующий srelens workload detail по клику из trace.
+- `bitbucket.listPullRequests` / `listCommits` / `jenkins.listBuilds`
+- `devops.traceDelivery` backend join; CLI prefers live → fixture
+- Contour projectFilters + Bitbucket `CORP` default
+- Artifact→workload evidence ladder in `join.rs`
+- Trace TTL cache cleared on profile switch
+- Workspace overlays live answer; fixtures remain offline default
 
-Exit: `Jira → PR → Build → prod Deployment` работает end-to-end.
+Still open for a later slice: live kube listing inside the delivery capability.
 
-## Этап 5 — UI и MCP
+## Stage 4 — Kubernetes Explorer + macOS polish (partial)
 
-1. Перенести prototype в owning design system srelens.
-2. Добавить route identity с cluster/context.
-3. Добавить Mission control в navigation и command palette.
-4. Отображать exact/heuristic evidence и partial errors.
-5. Добавить MCP prompts для stand-up и deployment trace.
+Done:
 
-## Обязательные проверки каждого PR
+- Delivery → Explore → classic IDE resource focus (`runtimeHandoff`)
+- Workspace rail backdrop + reduced-transparency fallback
+
+Still open: mount full resource browsers inside the workspace explorer; optional
+native Tauri vibrancy.
+
+## Explicitly not Stage 1
+
+- Real AppFarm / Komus HTTP against private endpoints.
+- SSH / Ansible.
+- Rewriting Kubernetes core.
+- Migrating UI frameworks for look alone.
+- Keeping DevOps permanently nested under resource-kind tabs.
+
+## Checks every change
 
 ```bash
 cargo test --workspace
@@ -65,12 +73,8 @@ pnpm test
 pnpm build
 ```
 
-Для новых capabilities также:
+Capability catalog changes:
 
 ```bash
 UPDATE_CATALOG=1 cargo test -p srelens-registry
 ```
-
-Не снижать coverage thresholds. Любое изменение начинается с failing test согласно
-`CONTRIBUTING.md` upstream проекта.
-

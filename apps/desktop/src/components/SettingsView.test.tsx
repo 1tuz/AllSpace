@@ -694,6 +694,7 @@ describe("SettingsView", () => {
 
     // The desktop-only nav entries are gone entirely (not just empty panes).
     expect(screen.queryByRole("button", { name: /Updates/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^DevOps/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^MCP/ })).toBeNull();
 
     // The request-timeout slider is a no-op on the web (set_request_timeout

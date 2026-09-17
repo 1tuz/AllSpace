@@ -5,6 +5,14 @@
 <h3 align="center">The Kubernetes control room—built in Rust, ready for engineers and AI agents.</h3>
 
 <p align="center">
+  <strong>Fork note:</strong> this tree is evolving into a delivery-first DevOps
+  workspace (work → change → build → artifact → deploy → runtime). Kubernetes
+  stays as a secondary explorer over the retained SRE Lens platform.
+  See <code>DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md</code> and
+  <code>docs/devops-cockpit/</code>.
+</p>
+
+<p align="center">
   srelens is an open-source, local-first Kubernetes desktop workspace for SREs,
   platform engineers, and DevOps engineers. Investigate, analyse, and take safe
   action across clusters from one application built with Tauri v2, React 19,

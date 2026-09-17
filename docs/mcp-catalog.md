@@ -5,7 +5,7 @@
 
 Everything this server exposes over MCP, generated from the live registry so it cannot drift. Written for someone wiring an agent to srelens; the narrative reference is [MCP.md](MCP.md).
 
-## Tools (108)
+## Tools (120)
 
 Argument schemas are not reproduced here — call `tools/list` for those, which cannot go stale.
 
@@ -151,23 +151,35 @@ Argument schemas are not reproduced here — call `tools/list` for those, which 
 | `toolbox.removePlugin` | remove an installed krew plugin |
 | `toolbox.upgradePlugin` | upgrade an installed krew plugin |
 
-### Server — read-only (8)
+### Server — read-only (18)
 
 | Tool | Summary |
 | --- | --- |
+| `bitbucket.listCommits` | list commits of the active DevOps profile's Bitbucket projects |
+| `bitbucket.listPullRequests` | list pull requests of the active DevOps profile's Bitbucket projects |
+| `devops.profiles.list` | list configured DevOps connection profiles without credentials |
+| `devops.traceDelivery` | trace a work item across live Jira, GitLab, Bitbucket, and Jenkins sources with evidence |
+| `devops.traceIssue` | trace a DevOps work item through fixture issue, change, build, artifact, and workload data |
 | `extensions.catalog` | Browse the native extension catalog with a durable cache; never connects clusters |
 | `extensions.catalogManifest` | Download and checksum-verify a catalog manifest for permission review; does not install it |
 | `extensions.list` | List installed declarative extensions |
 | `extensions.read` | Read a declared custom-resource contribution from an enabled extension |
 | `extensions.resource` | Inspect the selected resource of an enabled app |
 | `extensions.validate` | Check a declarative extension manifest exactly as installing it would and return every problem; does not install it |
+| `gitlab.listCommits` | list commits of the active DevOps profile's GitLab projects |
+| `gitlab.listMergeRequests` | list merge requests of the active DevOps profile's GitLab projects |
+| `gitlab.listPipelines` | list pipelines of the active DevOps profile's GitLab projects |
+| `jenkins.listBuilds` | list builds of the active DevOps profile's Jenkins jobs |
+| `jira.searchIssues` | search Jira Data Center issues by key through the active DevOps profile |
 | `ping` | health check; echoes the input back as { pong: <input> } |
 | `settings.get` | read durable desktop settings; omit key to return the complete map |
 
-### Server — needs confirmation (3)
+### Server — needs confirmation (5)
 
 | Tool | Summary |
 | --- | --- |
+| `devops.profiles.select` | select an existing DevOps profile for subsequent trace requests |
+| `devops.profiles.upsert` | create or update public DevOps profile configuration without credentials |
 | `extensions.action` | Request a host-owned GitOps action on an app resource; requires explicit confirmation |
 | `extensions.configure` | Install, enable, remove or configure local extensions; requires approval |
 | `settings.set` | atomically write or remove durable desktop settings |

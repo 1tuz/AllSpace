@@ -40,6 +40,16 @@ if (typeof window !== "undefined") {
     (window as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
   }
 
+  // xterm feature-detects a 2D canvas while its module loads. jsdom's stub
+  // deliberately reports this as an unimplemented browser API and writes an
+  // error for every import, although these unit tests never render a terminal.
+  // A minimal inert context keeps the environment quiet without pretending to
+  // exercise terminal drawing (that remains covered by the live smoke suite).
+  Object.defineProperty(window.HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: () => ({}),
+  });
+
   // Radix popovers (Select, etc.) call these pointer-capture / scroll APIs that
   // jsdom does not implement.
   const proto = window.HTMLElement.prototype as unknown as Record<string, unknown>;

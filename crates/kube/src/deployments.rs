@@ -18,7 +18,7 @@ pub struct ListDeploymentsIn {
     pub namespace: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct DeploymentSummary {
     pub name: String,
     pub namespace: String,
@@ -37,7 +37,7 @@ pub struct DeploymentSummary {
     pub created_at: String,
 }
 
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListDeploymentsOut {
     pub deployments: Vec<DeploymentSummary>,
 }
@@ -56,7 +56,7 @@ pub struct ListDeploymentsByImageIn {
 /// The minimum runtime evidence needed by the delivery correlation layer.
 /// Values are only workload metadata and image references — never manifests,
 /// environment, or Secret data.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DeploymentImageMatch {
     pub name: String,
@@ -65,7 +65,7 @@ pub struct DeploymentImageMatch {
     pub images: Vec<String>,
 }
 
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListDeploymentsByImageOut {
     pub deployments: Vec<DeploymentImageMatch>,
 }
@@ -350,6 +350,36 @@ mod tests {
         let result = deployment_image_match(&deployment, &["registry.example/migrate@sha256:abc".into()]);
         assert_eq!(result.as_ref().map(|match_| match_.name.as_str()), Some("payments-api"));
         assert_eq!(result.map(|match_| match_.images), Some(vec!["registry.example/migrate@sha256:abc".into()]));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires SRELENS_E2E_CONTEXT and a reachable kubeconfig"]
+    async fn live_capability_returns_the_deployment_for_its_own_image() {
+        let context = std::env::var("SRELENS_E2E_CONTEXT").expect("SRELENS_E2E_CONTEXT");
+        let kubeconfig = std::env::var("KUBECONFIG").expect("KUBECONFIG");
+        let cache = ClientCache::new(PathBuf::from(kubeconfig));
+        let client = cache.get(&context).await.expect("live kube client");
+        let api: Api<Deployment> = Api::all(client);
+        let deployment = api
+            .list(&ListParams::default())
+            .await
+            .expect("list live deployments")
+            .items
+            .into_iter()
+            .find(|deployment| !deployment_images(deployment).is_empty())
+            .expect("at least one deployment with an image");
+        let images = deployment_images(&deployment);
+        let expected_name = deployment.metadata.name.clone().expect("deployment name");
+        let expected_namespace = deployment.metadata.namespace.clone().expect("deployment namespace");
+        let output = (list_deployments_by_image_capability(cache).handler)(serde_json::json!({
+            "context": context,
+            "images": images,
+            "namespaces": [expected_namespace],
+        }))
+        .await
+        .expect("live listDeploymentsByImage");
+        let matches: ListDeploymentsByImageOut = serde_json::from_value(output).expect("capability schema");
+        assert!(matches.deployments.iter().any(|deployment| deployment.name == expected_name));
     }
 
     fn replicaset(name: &str, owner: &str, revision: &str) -> ReplicaSet {

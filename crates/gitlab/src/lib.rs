@@ -243,6 +243,22 @@ impl<T: GitlabTransport> GitlabClient<T> {
         &self,
         project_filters: &[String],
     ) -> Result<Vec<GitlabProject>, GitlabError> {
+        // A profile normally names concrete project paths (for example
+        // `group/service`). Resolve those directly instead of first paging
+        // through every project visible to the token. Apart from making the
+        // configured boundary exact, this prevents a delivery trace from
+        // spending minutes enumerating an organisation before it can read one
+        // pipeline. A one-segment filter still means a group prefix and keeps
+        // the existing membership listing behaviour below.
+        if project_filters
+            .iter()
+            .all(|filter| filter.trim_matches('/').contains('/'))
+        {
+            return project_filters
+                .iter()
+                .map(|filter| self.get_project(filter.trim_matches('/')))
+                .collect();
+        }
         let mut page = "1".to_owned();
         let mut seen_pages = BTreeSet::new();
         let mut projects = Vec::new();
@@ -274,6 +290,22 @@ impl<T: GitlabTransport> GitlabClient<T> {
 
         projects.retain(|project| project_matches(project, project_filters));
         Ok(projects)
+    }
+
+    fn get_project(&self, path: &str) -> Result<GitlabProject, GitlabError> {
+        let response = self.transport.get(GitlabRequest {
+            url: format!(
+                "{}/api/v4/projects/{}",
+                self.base_url,
+                encode_project_path(path)
+            ),
+            headers: BTreeMap::from([("PRIVATE-TOKEN".into(), self.token.clone())]),
+        })?;
+        if !(200..300).contains(&response.status) {
+            return Err(GitlabError::UnexpectedStatus(response.status));
+        }
+        serde_json::from_value(response.body)
+            .map_err(|error| GitlabError::InvalidResponse(error.to_string()))
     }
 
     pub fn list_merge_requests(
@@ -379,6 +411,20 @@ impl<T: GitlabTransport> GitlabClient<T> {
     }
 }
 
+/// GitLab's `GET /projects/:id` accepts a URL-encoded namespace path. Keep
+/// the path escaping local to this boundary: a profile filter is data, never
+/// a URL fragment or query string.
+fn encode_project_path(path: &str) -> String {
+    path.bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                vec![byte as char]
+            }
+            other => format!("%{other:02X}").chars().collect(),
+        })
+        .collect()
+}
+
 fn project_matches(project: &GitlabProject, filters: &[String]) -> bool {
     filters.is_empty()
         || filters.iter().any(|filter| {
@@ -408,6 +454,17 @@ mod tests {
     impl GitlabTransport for FakeTransport {
         fn get(&self, request: GitlabRequest) -> Result<GitlabResponse, GitlabError> {
             self.requests.borrow_mut().push(request.clone());
+            if request.url.contains("/api/v4/projects/platform%2Fapi") {
+                return Ok(GitlabResponse::json(
+                    200,
+                    None,
+                    json!({
+                        "id": 1,
+                        "path_with_namespace": "platform/api",
+                        "web_url": "https://gitlab.example.test/platform/api"
+                    }),
+                ));
+            }
             let second_page = request.url.ends_with("page=2");
             Ok(GitlabResponse::json(
                 200,
@@ -433,7 +490,7 @@ mod tests {
             .expect("valid client");
 
         let projects = client
-            .list_projects(&["platform/api".into(), "payments/web".into()])
+            .list_projects(&["platform/api".into(), "payments".into()])
             .expect("GitLab answered both pages");
 
         assert_eq!(
@@ -453,6 +510,22 @@ mod tests {
             .url
             .ends_with("/api/v4/projects?membership=true&simple=true&per_page=100&page=1"));
         assert!(requests[1].url.ends_with("page=2"));
+    }
+
+    #[test]
+    fn resolves_an_exact_project_path_without_enumerating_every_membership_page() {
+        let transport = FakeTransport::default();
+        let client = GitlabClient::new("https://gitlab.example.test", "test-token", &transport)
+            .expect("valid client");
+
+        let projects = client
+            .list_projects(&["platform/api".into()])
+            .expect("the named project resolves");
+
+        assert_eq!(projects.len(), 1);
+        let requests = transport.requests.borrow();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].url.ends_with("/api/v4/projects/platform%2Fapi"));
     }
 
     #[test]

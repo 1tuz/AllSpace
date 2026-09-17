@@ -331,11 +331,19 @@ async fn upsert_profile(registry: &Registry, args: &[String]) -> i32 {
 }
 
 async fn trace(registry: &Registry, args: &[String]) -> i32 {
+    let input = match trace_input(args) {
+        Ok(input) => input,
+        Err(error) => {
+            eprintln!("{error}");
+            eprintln!("usage: srelens devops trace <issueKey> [--kube-context CONTEXT] [--namespace NAME]…");
+            return 2;
+        }
+    };
     let Some(key) = args.first() else {
-        eprintln!("usage: srelens devops trace <issueKey>");
+        eprintln!("usage: srelens devops trace <issueKey> [--kube-context CONTEXT] [--namespace NAME]…");
         return 2;
     };
-    let live = invoke(registry, "devops.traceDelivery", json!({ "issueKey": key })).await;
+    let live = invoke(registry, "devops.traceDelivery", input).await;
     match live {
         Ok(v) if v.get("nodes").and_then(|n| n.as_array()).is_some_and(|n| !n.is_empty()) => {
             print_json(&v);
@@ -387,6 +395,37 @@ async fn trace(registry: &Registry, args: &[String]) -> i32 {
             }
         },
     }
+}
+
+fn trace_input(args: &[String]) -> Result<Value, String> {
+    let issue_key = args.first().filter(|key| !key.starts_with("--"))
+        .ok_or("an issue key is required")?;
+    let mut kube_context = None;
+    let mut namespaces = Vec::new();
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--kube-context" => {
+                kube_context = args.get(index + 1).cloned().filter(|value| !value.is_empty());
+                if kube_context.is_none() {
+                    return Err("--kube-context needs a context name".into());
+                }
+                index += 2;
+            }
+            "--namespace" => {
+                let namespace = args.get(index + 1).cloned().filter(|value| !value.is_empty())
+                    .ok_or("--namespace needs a namespace")?;
+                namespaces.push(namespace);
+                index += 2;
+            }
+            flag => return Err(format!("unknown trace option: {flag}")),
+        }
+    }
+    Ok(json!({
+        "issueKey": issue_key,
+        "kubeContext": kube_context,
+        "namespaces": namespaces,
+    }))
 }
 
 async fn jira(registry: &Registry, args: &[String]) -> i32 {
@@ -484,9 +523,28 @@ async fn set_from_env(
         return 2;
     };
 
-    let gitlab_filters = env_csv("GITLAB_PROJECTS");
-    let bitbucket_filters = env_csv("BITBUCKET_PROJECTS");
-    let jenkins_filters = env_csv("JENKINS_JOBS");
+    // Credential import must not broaden a profile that was already scoped in
+    // Settings. Empty env filter variables mean “keep the saved boundary”,
+    // not “scan every project visible to this token”.
+    let profiles = invoke(registry, "devops.profiles.list", json!({})).await.ok();
+    let gitlab_filters = profile_filters(
+        profiles.as_ref().unwrap_or(&Value::Null),
+        &profile_id,
+        "gitlab",
+        env_csv("GITLAB_PROJECTS"),
+    );
+    let bitbucket_filters = profile_filters(
+        profiles.as_ref().unwrap_or(&Value::Null),
+        &profile_id,
+        "bitbucketDc",
+        env_csv("BITBUCKET_PROJECTS"),
+    );
+    let jenkins_filters = profile_filters(
+        profiles.as_ref().unwrap_or(&Value::Null),
+        &profile_id,
+        "jenkins",
+        env_csv("JENKINS_JOBS"),
+    );
 
     if let (Ok(jira_url), Ok(_)) = (std::env::var("JIRA_DOMAIN"), std::env::var("JIRA_PASSWORD")) {
         let gitlab_url = std::env::var("GITLAB_URL").ok();
@@ -606,6 +664,34 @@ async fn set_from_env(
     0
 }
 
+fn profile_filters(
+    profiles: &Value,
+    profile_id: &str,
+    provider: &str,
+    from_env: Vec<String>,
+) -> Vec<String> {
+    if !from_env.is_empty() {
+        return from_env;
+    }
+    profiles
+        .get("profiles")
+        .and_then(Value::as_array)
+        .and_then(|profiles| profiles.iter().find(|profile| profile.get("id") == Some(&json!(profile_id))))
+        .and_then(|profile| profile.get("providers"))
+        .and_then(Value::as_array)
+        .and_then(|providers| providers.iter().find(|item| item.get("provider") == Some(&json!(provider))))
+        .and_then(|item| item.get("projectFilters"))
+        .and_then(Value::as_array)
+        .map(|filters| {
+            filters
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn env_csv(name: &str) -> Vec<String> {
     std::env::var(name)
         .ok()
@@ -629,7 +715,7 @@ Usage:
   srelens devops profiles upsert --id ID --label LABEL [--jira URL] [--gitlab URL] \\
       [--gitlab-project PATH]… [--bitbucket URL] [--bitbucket-project KEY]… \\
       [--jenkins URL] [--jenkins-job PATH]…
-  srelens devops trace <issueKey>
+  srelens devops trace <issueKey> [--kube-context CONTEXT] [--namespace NAME]…
   srelens devops jira search <ISSUE> [ISSUE…]
   srelens devops gitlab <mrs|commits|pipelines>
   srelens devops credentials status
@@ -646,4 +732,44 @@ MCP (same vault / env credential rules):
   srelens --mcp-stdio
   srelens --mcp-http [addr]"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trace_input_keeps_the_explicit_runtime_scope() {
+        let args = vec![
+            "AFS-28457".into(),
+            "--kube-context".into(),
+            "devstbl".into(),
+            "--namespace".into(),
+            "appfarm".into(),
+        ];
+
+        assert_eq!(
+            trace_input(&args).unwrap(),
+            json!({
+                "issueKey": "AFS-28457",
+                "kubeContext": "devstbl",
+                "namespaces": ["appfarm"],
+            })
+        );
+    }
+
+    #[test]
+    fn imported_credentials_keep_existing_project_filters_when_env_omits_them() {
+        let profiles = json!({
+            "profiles": [{
+                "id": "appfarm",
+                "providers": [{ "provider": "gitlab", "projectFilters": ["appfarm/infra/k8s/gitlab"] }]
+            }]
+        });
+
+        assert_eq!(
+            profile_filters(&profiles, "appfarm", "gitlab", vec![]),
+            vec!["appfarm/infra/k8s/gitlab"]
+        );
+    }
 }

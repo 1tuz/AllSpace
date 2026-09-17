@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { App } from "./App";
 import { WorkspaceApp } from "./workspace/WorkspaceApp";
 import { LoginScreen } from "./components/LoginScreen";
-import { VaultGate } from "./components/VaultGate";
 import { fetchMe, type Me } from "@srelens/core";
 import { isTauri, isWeb } from "@srelens/core/platform";
 import { LoadingState } from "./ui";
@@ -33,8 +32,8 @@ function saveSurface(surface: Surface): void {
 /**
  * Auth gate, then delivery-first workspace by default.
  * Classic Kubernetes IDE remains an escape hatch until Stage 4 explorer lands.
- * Desktop always mounts VaultGate on the workspace surface so DevOps connector
- * secrets can be stored in the encrypted vault.
+ * Desktop starts directly in the workspace. Stored secrets use the OS
+ * keychain by default; an optional master password is configured in Security.
  */
 export default function AppGate() {
   const [auth, setAuth] = useState<Auth>(isWeb ? { status: "pending" } : { status: "authed", me: null });
@@ -90,15 +89,5 @@ export default function AppGate() {
       <WorkspaceApp onOpenClassicIde={openClassicIde} />
     );
 
-  // Classic App already mounts its own VaultGate. Workspace needs one here so
-  // Settings → DevOps can write connector credentials into secrets.enc.
-  if (surface === "workspace" && isTauri()) {
-    return (
-      <>
-        {body}
-        <VaultGate />
-      </>
-    );
-  }
   return body;
 }

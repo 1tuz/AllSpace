@@ -11,6 +11,7 @@ const { mcpSecurity } = vi.hoisted(() => ({
     vaultBiometricDisable: vi.fn(),
     vaultBiometricUnlock: vi.fn(),
     vaultChangePassword: vi.fn(),
+    vaultSetupPassword: vi.fn(),
   },
 }));
 vi.mock("@srelens/core/lib/mcpSecurity", () => mcpSecurity);
@@ -25,6 +26,7 @@ beforeEach(() => {
   mcpSecurity.vaultBiometricDisable.mockResolvedValue(undefined);
   mcpSecurity.vaultBiometricUnlock.mockResolvedValue(undefined);
   mcpSecurity.vaultChangePassword.mockResolvedValue(undefined);
+  mcpSecurity.vaultSetupPassword.mockResolvedValue(undefined);
 });
 
 describe("SecuritySettingsSection", () => {
@@ -78,6 +80,24 @@ describe("SecuritySettingsSection", () => {
     fireEvent.click(screen.getByRole("button", { name: /change password/i }));
     await waitFor(() =>
       expect(mcpSecurity.vaultChangePassword).toHaveBeenCalledWith("old-password", "new-password-1"),
+    );
+  });
+
+  it("lets an already-open app opt into a master password", async () => {
+    mcpSecurity.getMcpTokenStorage.mockResolvedValue("keychain");
+    render(<SecuritySettingsSection />);
+
+    await screen.findByText(/add a master password/i);
+    fireEvent.change(screen.getByPlaceholderText(/new master password/i), {
+      target: { value: "new-password-1" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/confirm master password/i), {
+      target: { value: "new-password-1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /protect with password/i }));
+
+    await waitFor(() =>
+      expect(mcpSecurity.vaultSetupPassword).toHaveBeenCalledWith("new-password-1", true),
     );
   });
 });

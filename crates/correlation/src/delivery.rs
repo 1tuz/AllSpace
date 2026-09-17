@@ -62,7 +62,7 @@ async fn trace_delivery_live(sources: &DeliverySourceCaps, input: &TraceDelivery
     .await
     {
         Ok(entities) => bundles.issues.extend(entities),
-        Err(error) => bundles.source_errors.push(error),
+        Err(error) => push_if_configured(&mut bundles.source_errors, error),
     }
 
     match call_entities(
@@ -74,12 +74,12 @@ async fn trace_delivery_live(sources: &DeliverySourceCaps, input: &TraceDelivery
     .await
     {
         Ok(entities) => bundles.changes.extend(entities),
-        Err(error) => push_unique(&mut bundles.source_errors, error),
+        Err(error) => push_if_configured(&mut bundles.source_errors, error),
     }
 
     match call_entities(&sources.gitlab_commits, json!({}), Source::Gitlab, "entities").await {
         Ok(entities) => bundles.commits.extend(entities),
-        Err(error) => push_unique(&mut bundles.source_errors, error),
+        Err(error) => push_if_configured(&mut bundles.source_errors, error),
     }
 
     match call_entities(
@@ -91,7 +91,7 @@ async fn trace_delivery_live(sources: &DeliverySourceCaps, input: &TraceDelivery
     .await
     {
         Ok(entities) => bundles.builds.extend(entities),
-        Err(error) => push_unique(&mut bundles.source_errors, error),
+        Err(error) => push_if_configured(&mut bundles.source_errors, error),
     }
 
     match call_entities(
@@ -103,7 +103,7 @@ async fn trace_delivery_live(sources: &DeliverySourceCaps, input: &TraceDelivery
     .await
     {
         Ok(entities) => bundles.changes.extend(entities),
-        Err(error) => push_unique(&mut bundles.source_errors, error),
+        Err(error) => push_if_configured(&mut bundles.source_errors, error),
     }
 
     match call_entities(
@@ -115,12 +115,12 @@ async fn trace_delivery_live(sources: &DeliverySourceCaps, input: &TraceDelivery
     .await
     {
         Ok(entities) => bundles.commits.extend(entities),
-        Err(error) => push_unique(&mut bundles.source_errors, error),
+        Err(error) => push_if_configured(&mut bundles.source_errors, error),
     }
 
     match call_entities(&sources.jenkins_builds, json!({}), Source::Jenkins, "builds").await {
         Ok(entities) => bundles.builds.extend(entities),
-        Err(error) => push_unique(&mut bundles.source_errors, error),
+        Err(error) => push_if_configured(&mut bundles.source_errors, error),
     }
 
     // A Kubernetes call is only made when a caller explicitly scopes it. The
@@ -227,5 +227,41 @@ fn push_unique(errors: &mut Vec<SourceError>, error: SourceError) {
         .any(|existing| existing.source == error.source && existing.message == error.message)
     {
         errors.push(error);
+    }
+}
+
+/// A profile may deliberately omit any optional provider. Its sibling
+/// capability then says so explicitly; that is configuration, not a failed
+/// source, and must not label an otherwise complete Jira/GitLab trace partial.
+fn push_if_configured(errors: &mut Vec<SourceError>, error: SourceError) {
+    if !error.message.contains("does not configure the ") {
+        push_unique(errors, error);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unconfigured_optional_provider_does_not_make_a_trace_partial() {
+        let mut errors = Vec::new();
+        push_if_configured(
+            &mut errors,
+            SourceError {
+                source: Source::Bitbucket,
+                message: "handler error: profile appfarm does not configure the bitbucketDc provider".into(),
+            },
+        );
+        push_if_configured(
+            &mut errors,
+            SourceError {
+                source: Source::Gitlab,
+                message: "handler error: request timed out".into(),
+            },
+        );
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].source, Source::Gitlab);
     }
 }

@@ -8,6 +8,7 @@ import {
   vaultBiometricStatus,
   vaultBiometricUnlock,
   vaultChangePassword,
+  vaultSetupPassword,
   type VaultBiometricStatus,
   type VaultKeySource,
 } from "@srelens/core";
@@ -26,6 +27,9 @@ export function SecuritySettingsSection() {
   const [pwNew, setPwNew] = useState("");
   const [pwConfirm, setPwConfirm] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
+  const [setupPassword, setSetupPassword] = useState("");
+  const [setupConfirm, setSetupConfirm] = useState("");
+  const [setupBusy, setSetupBusy] = useState(false);
 
   // What the OS calls its biometric unlock — the plugin backs onto Touch ID
   // on macOS and Windows Hello on Windows (Linux has no backend, so the
@@ -102,13 +106,32 @@ export function SecuritySettingsSection() {
     }
   }
 
+  async function setupMasterPassword() {
+    if (setupPassword !== setupConfirm) {
+      notify.error("The passwords don't match");
+      return;
+    }
+    setSetupBusy(true);
+    try {
+      await vaultSetupPassword(setupPassword, true);
+      notify.success("Master password enabled");
+      setSetupPassword("");
+      setSetupConfirm("");
+      await refreshVaultState();
+    } catch (e) {
+      notify.error(String(e));
+    } finally {
+      setSetupBusy(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-lg font-semibold">Security</h2>
         <p className="text-sm text-muted-foreground">
-          The master password and biometric unlock protecting srelens's stored secrets — the MCP
-          token and the assistant's API keys.
+          Stored secrets use the OS keychain by default. Add a master password only when you want
+          srelens to require it on future launches.
         </p>
       </div>
 
@@ -154,6 +177,38 @@ export function SecuritySettingsSection() {
           </label>
         )}
       </section>
+
+      {(keySource === "keychain" || keySource === "file") && (
+        <section className="flex flex-col gap-2 border-t border-border pt-4">
+          <h3 className="text-sm font-medium">Add a master password</h3>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Optional. The app stays open now; future launches will ask for this password before
+            stored credentials are available.
+          </p>
+          <div className="flex max-w-md flex-col gap-2">
+            <TextInput
+              type="password"
+              placeholder="New master password (at least 8 characters)"
+              value={setupPassword}
+              onValueChange={setSetupPassword}
+            />
+            <TextInput
+              type="password"
+              placeholder="Confirm master password"
+              value={setupConfirm}
+              onValueChange={setSetupConfirm}
+            />
+            <div>
+              <Button
+                disabled={setupBusy || setupPassword.length < 8 || setupPassword !== setupConfirm}
+                onClick={() => void setupMasterPassword()}
+              >
+                Protect with password
+              </Button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {(keySource === "password" || keySource === "biometric") && (
         <section className="flex flex-col gap-2 border-t border-border pt-4">

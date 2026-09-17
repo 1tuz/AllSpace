@@ -22,7 +22,6 @@ import { isTypingTarget, matchesShortcut } from "@srelens/core";
 import { takeHandoff } from "./design";
 import { takeRuntimeHandoff } from "./workspace/runtimeHandoff";
 import { McpConfirmDialog } from "./components/McpConfirmDialog";
-import { VaultGate } from "./components/VaultGate";
 import { Toaster } from "./components/ui/sonner";
 import { Dock, type DockSession, type DockKind } from "./components/Dock";
 import { StatusBar } from "./components/StatusBar";
@@ -423,10 +422,6 @@ export function App() {
     };
   }, []);
 
-  // The master-password gate (issue #208) mounts as a blocking overlay via
-  // <VaultGate /> below — setup at first launch, unlock (password or the
-  // enrolled biometric skip) on later ones.
-
   const handleDeleteContext = async (name: string) => {
     try {
       await deleteContext(name);
@@ -784,11 +779,9 @@ export function App() {
     setTabs((ts) => [...ts, { id, cluster: null, kind: "assistant", namespace: "" }]);
     setActiveTabId(id);
   }
-  // The MCP server needs the vault's token, so its auto-start must wait for
-  // the VaultGate to report the vault usable (set up + unlocked). Flipped by
-  // the gate's onReady exactly once per launch; starting while locked would
-  // fail to persist a token and silently never retry.
-  const [vaultReady, setVaultReady] = useState(false);
+  // New installs use the OS keychain without a password gate. A user can opt
+  // into a master password later in Settings → Security.
+  const [vaultReady] = useState(true);
 
   // Start the in-app MCP HTTP server once the vault is ready if the user left
   // it enabled, so agents can connect without opening Settings first.
@@ -1276,7 +1269,6 @@ export function App() {
       <ShortcutCheatSheet open={cheatSheetOpen} onOpenChange={setCheatSheetOpen} desktop={!isWeb} />
       <Toaster position="top-right" richColors closeButton />
       <McpConfirmDialog />
-      <VaultGate onReady={() => setVaultReady(true)} />
     </div>
   );
 }

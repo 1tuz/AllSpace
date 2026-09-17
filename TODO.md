@@ -35,6 +35,6 @@ Canonical direction:
 - [x] Delivery Trace → Explore opens classic IDE focused on runtime workload.
 - [x] Workspace rail materials + `prefers-reduced-transparency`.
 - [x] Smoke script probes optional `GITLAB_PROJECTS` / `BITBUCKET_PROJECTS`.
-- [ ] Live kube fan-out inside `devops.traceDelivery` (list deployments by image).
-- [ ] In-workspace resource browser / logs / shell (today: classic IDE handoff).
-- [ ] Native Tauri vibrancy beyond CSS backdrop (optional polish).
+- [x] Live kube fan-out inside `devops.traceDelivery` (list deployments by image).
+- [x] In-workspace resource browser / logs / shell (today: classic IDE handoff).
+- [x] Native Tauri vibrancy beyond CSS backdrop (optional polish).

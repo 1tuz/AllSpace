@@ -98,12 +98,11 @@ import { hint as chordHint } from "../../lib/shortcuts";
  * `apps/desktop/src/components/AppearanceSettingsSection.tsx` puts it in
  * classic, so a reader switching designs finds it in the same place in both.
  *
- * WHAT DELETES IT: step 11 of
- * `docs/superpowers/plans/2026-08-20-new-design-migration-*` — the step that
- * removes `apps/desktop/src/design.ts`, `AppearanceSettingsSection.tsx` and
+ * WHAT DELETES IT: the migration step that removes
+ * `apps/desktop/src/design.ts`, `AppearanceSettingsSection.tsx` and
  * `packages/ui-next/src/shell/Placeholder.tsx`. When `design.ts` goes, the
  * `Design` panel below and the `ported` / `onSwitchToClassic` props go with it,
- * and this pane matches §23 exactly. Not before: deleting it against the mock
+ * and this pane matches the target Appearance UI. Not before: deleting it early
  * takes the only way back to a working design with it.
  * ------------------------------------------------------------------ */
 

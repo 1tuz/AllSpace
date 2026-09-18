@@ -140,7 +140,8 @@ fn write_skill_atomic(dir: &Path, skill: &Skill) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     let path = skill_path(dir, &skill.name);
     let tmp = dir.join(format!("{}.md.tmp", skill.name));
-    fs::write(&tmp, to_markdown(skill)).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
+    fs::write(&tmp, to_markdown(skill))
+        .map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
     fs::rename(&tmp, &path).map_err(|e| format!("could not finalize {}: {e}", path.display()))
 }
 
@@ -186,8 +187,13 @@ fn list_skills(dir: &Path) -> Result<Vec<SkillMeta>, String> {
 
     let mut metas = Vec::new();
     for entry in entries {
-        let path = entry.map_err(|e| format!("could not read entry in {}: {e}", dir.display()))?.path();
-        if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")) {
+        let path = entry
+            .map_err(|e| format!("could not read entry in {}: {e}", dir.display()))?
+            .path();
+        if !path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+        {
             continue;
         }
         let Ok(raw) = fs::read_to_string(&path) else {
@@ -200,7 +206,11 @@ fn list_skills(dir: &Path) -> Result<Vec<SkillMeta>, String> {
             // file, but keep listing every other skill that DOES parse.
             continue;
         };
-        metas.push(SkillMeta { name: skill.name, description: skill.description, builtin: false });
+        metas.push(SkillMeta {
+            name: skill.name,
+            description: skill.description,
+            builtin: false,
+        });
     }
     metas.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(metas)
@@ -214,7 +224,11 @@ fn list_skills(dir: &Path) -> Result<Vec<SkillMeta>, String> {
 /// overrides the default (see [`list_all_skills`]/[`load_skill_or_builtin`]).
 pub fn builtin_skills() -> Vec<Skill> {
     fn skill(name: &str, description: &str, body: &str) -> Skill {
-        Skill { name: name.to_string(), description: description.to_string(), body: body.to_string() }
+        Skill {
+            name: name.to_string(),
+            description: description.to_string(),
+            body: body.to_string(),
+        }
     }
     vec![
         skill(
@@ -292,11 +306,22 @@ fn list_all_skills(dir: &Path) -> Result<Vec<SkillMeta>, String> {
     for b in builtin_skills() {
         by_name.insert(
             b.name.clone(),
-            SkillMeta { name: b.name, description: b.description, builtin: true },
+            SkillMeta {
+                name: b.name,
+                description: b.description,
+                builtin: true,
+            },
         );
     }
     for m in list_skills(dir)? {
-        by_name.insert(m.name.clone(), SkillMeta { name: m.name, description: m.description, builtin: false });
+        by_name.insert(
+            m.name.clone(),
+            SkillMeta {
+                name: m.name,
+                description: m.description,
+                builtin: false,
+            },
+        );
     }
     Ok(by_name.into_values().collect())
 }
@@ -363,7 +388,10 @@ mod tests {
 
     impl TempDir {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!("srelens-assistant-skills-test-{}", uuid::Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!(
+                "srelens-assistant-skills-test-{}",
+                uuid::Uuid::new_v4()
+            ));
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)
         }
@@ -413,8 +441,14 @@ mod tests {
 
         let parsed = parse_skill(&markdown).unwrap();
         assert_eq!(parsed.name, "crashloop-triage");
-        assert_eq!(parsed.description, "Systematic triage for a pod that keeps restarting");
-        assert_eq!(parsed.body, "First check the exit code.\n\nThen check the logs.\n");
+        assert_eq!(
+            parsed.description,
+            "Systematic triage for a pod that keeps restarting"
+        );
+        assert_eq!(
+            parsed.body,
+            "First check the exit code.\n\nThen check the logs.\n"
+        );
         assert_eq!(parsed, skill);
     }
 
@@ -484,7 +518,11 @@ mod tests {
         write_skill_atomic(&dir, &sample_skill("alpha")).unwrap();
         write_skill_atomic(&dir, &sample_skill("mid")).unwrap();
 
-        let names: Vec<String> = list_skills(&dir).unwrap().into_iter().map(|m| m.name).collect();
+        let names: Vec<String> = list_skills(&dir)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
         assert_eq!(names, vec!["alpha", "mid", "zeta"]);
     }
 
@@ -502,7 +540,10 @@ mod tests {
 
     #[test]
     fn list_of_a_missing_directory_is_empty_not_an_error() {
-        let dir = std::env::temp_dir().join(format!("srelens-no-such-skills-dir-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!(
+            "srelens-no-such-skills-dir-{}",
+            uuid::Uuid::new_v4()
+        ));
         assert_eq!(list_skills(&dir).unwrap(), Vec::new());
     }
 
@@ -520,9 +561,16 @@ mod tests {
         fs::write(dir.join("broken.md"), "not front matter at all\n").unwrap();
 
         let result = list_skills(&dir);
-        assert!(result.is_ok(), "one broken file must not fail the whole list, got {result:?}");
+        assert!(
+            result.is_ok(),
+            "one broken file must not fail the whole list, got {result:?}"
+        );
         let names: Vec<String> = result.unwrap().into_iter().map(|m| m.name).collect();
-        assert_eq!(names, vec!["good"], "the malformed file must be skipped, not surfaced or aborting the list");
+        assert_eq!(
+            names,
+            vec!["good"],
+            "the malformed file must be skipped, not surfaced or aborting the list"
+        );
     }
 
     /// The list tolerates a bad file (previous test); loading one specific,
@@ -548,8 +596,15 @@ mod tests {
 
         delete_skill(&dir, "gone").unwrap();
 
-        assert!(!skill_path(&dir, "gone").exists(), "skill file should be removed");
-        let remaining: Vec<String> = list_skills(&dir).unwrap().into_iter().map(|m| m.name).collect();
+        assert!(
+            !skill_path(&dir, "gone").exists(),
+            "skill file should be removed"
+        );
+        let remaining: Vec<String> = list_skills(&dir)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
         assert_eq!(remaining, vec!["stays"]);
     }
 
@@ -568,7 +623,10 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         let err = read_skill(&dir, "does-not-exist").unwrap_err();
-        assert!(err.contains("does-not-exist"), "error should name the missing skill, got: {err}");
+        assert!(
+            err.contains("does-not-exist"),
+            "error should name the missing skill, got: {err}"
+        );
     }
 
     /// The load-bearing security test: a name that isn't a bare filename
@@ -583,13 +641,22 @@ mod tests {
 
         for bad in ["../evil", "a/b", "a\\b", "../../etc/passwd"] {
             let save_err = write_skill_atomic(&dir, &sample_skill(bad)).unwrap_err();
-            assert!(save_err.contains("invalid skill name"), "save({bad:?}) got: {save_err}");
+            assert!(
+                save_err.contains("invalid skill name"),
+                "save({bad:?}) got: {save_err}"
+            );
 
             let load_err = read_skill(&dir, bad).unwrap_err();
-            assert!(load_err.contains("invalid skill name"), "load({bad:?}) got: {load_err}");
+            assert!(
+                load_err.contains("invalid skill name"),
+                "load({bad:?}) got: {load_err}"
+            );
 
             let delete_err = delete_skill(&dir, bad).unwrap_err();
-            assert!(delete_err.contains("invalid skill name"), "delete({bad:?}) got: {delete_err}");
+            assert!(
+                delete_err.contains("invalid skill name"),
+                "delete({bad:?}) got: {delete_err}"
+            );
         }
     }
 
@@ -610,7 +677,10 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         let path = skill_path(&dir, "..");
-        assert!(path.starts_with(&dir), "skill_path(\"..\") must stay inside dir, got {path:?}");
+        assert!(
+            path.starts_with(&dir),
+            "skill_path(\"..\") must stay inside dir, got {path:?}"
+        );
         assert_eq!(
             path.file_name(),
             Some(std::ffi::OsStr::new("...md")),
@@ -619,7 +689,11 @@ mod tests {
 
         let skill = sample_skill("..");
         write_skill_atomic(&dir, &skill).unwrap();
-        assert_eq!(read_skill(&dir, "..").unwrap(), skill, "save/load of `..` round-trips like any other name");
+        assert_eq!(
+            read_skill(&dir, "..").unwrap(),
+            skill,
+            "save/load of `..` round-trips like any other name"
+        );
 
         let entries: Vec<String> = fs::read_dir(&dir)
             .unwrap()
@@ -635,12 +709,29 @@ mod tests {
     #[test]
     fn every_builtin_skill_is_valid_and_round_trips_through_the_on_disk_format() {
         let builtins = builtin_skills();
-        assert!(!builtins.is_empty(), "srelens should ship some default skills");
+        assert!(
+            !builtins.is_empty(),
+            "srelens should ship some default skills"
+        );
         for s in builtins {
-            validate_name(&s.name).unwrap_or_else(|e| panic!("builtin {:?} has an invalid name: {e}", s.name));
-            assert!(!s.description.trim().is_empty(), "builtin {:?} needs a description", s.name);
-            assert!(!s.body.trim().is_empty(), "builtin {:?} needs a body", s.name);
-            assert_eq!(parse_skill(&to_markdown(&s)).unwrap(), s, "builtin {:?} must round-trip", s.name);
+            validate_name(&s.name)
+                .unwrap_or_else(|e| panic!("builtin {:?} has an invalid name: {e}", s.name));
+            assert!(
+                !s.description.trim().is_empty(),
+                "builtin {:?} needs a description",
+                s.name
+            );
+            assert!(
+                !s.body.trim().is_empty(),
+                "builtin {:?} needs a body",
+                s.name
+            );
+            assert_eq!(
+                parse_skill(&to_markdown(&s)).unwrap(),
+                s,
+                "builtin {:?} must round-trip",
+                s.name
+            );
         }
     }
 
@@ -650,9 +741,19 @@ mod tests {
         let dir = skills_dir(tmp.path()); // never created — the user has no skills of their own
 
         let metas = list_all_skills(&dir).unwrap();
-        assert_eq!(metas.len(), builtin_skills().len(), "every default should be listed");
-        assert!(metas.iter().all(|m| m.builtin), "with no user files, every entry is a default");
-        assert!(metas.iter().any(|m| m.name == "crashloop-triage"), "a known default should be present");
+        assert_eq!(
+            metas.len(),
+            builtin_skills().len(),
+            "every default should be listed"
+        );
+        assert!(
+            metas.iter().all(|m| m.builtin),
+            "with no user files, every entry is a default"
+        );
+        assert!(
+            metas.iter().any(|m| m.name == "crashloop-triage"),
+            "a known default should be present"
+        );
         // sorted by name (BTreeMap ordering)
         let mut sorted = metas.clone();
         sorted.sort_by(|a, b| a.name.cmp(&b.name));
@@ -667,7 +768,10 @@ mod tests {
 
         let metas = list_all_skills(&dir).unwrap();
         assert_eq!(metas.len(), builtin_skills().len() + 1);
-        let mine = metas.iter().find(|m| m.name == "my-own").expect("the user skill should be listed");
+        let mine = metas
+            .iter()
+            .find(|m| m.name == "my-own")
+            .expect("the user skill should be listed");
         assert!(!mine.builtin, "a user-authored skill is not a default");
     }
 
@@ -683,14 +787,30 @@ mod tests {
         write_skill_atomic(&dir, &override_skill).unwrap();
 
         let metas = list_all_skills(&dir).unwrap();
-        assert_eq!(metas.len(), builtin_skills().len(), "an override replaces the default, it doesn't add a row");
-        let hits: Vec<&SkillMeta> = metas.iter().filter(|m| m.name == "crashloop-triage").collect();
+        assert_eq!(
+            metas.len(),
+            builtin_skills().len(),
+            "an override replaces the default, it doesn't add a row"
+        );
+        let hits: Vec<&SkillMeta> = metas
+            .iter()
+            .filter(|m| m.name == "crashloop-triage")
+            .collect();
         assert_eq!(hits.len(), 1, "the name must appear exactly once");
-        assert_eq!(hits[0].description, "MY custom crashloop steps", "the user's description wins");
-        assert!(!hits[0].builtin, "an overridden default is now a user skill");
+        assert_eq!(
+            hits[0].description, "MY custom crashloop steps",
+            "the user's description wins"
+        );
+        assert!(
+            !hits[0].builtin,
+            "an overridden default is now a user skill"
+        );
 
         // and load returns the user's body, not the shipped default's
-        assert_eq!(load_skill_or_builtin(&dir, "crashloop-triage").unwrap(), override_skill);
+        assert_eq!(
+            load_skill_or_builtin(&dir, "crashloop-triage").unwrap(),
+            override_skill
+        );
     }
 
     #[test]
@@ -699,8 +819,14 @@ mod tests {
         let dir = skills_dir(tmp.path()); // no user files
 
         let loaded = load_skill_or_builtin(&dir, "pending-pod").unwrap();
-        let default = builtin_skills().into_iter().find(|s| s.name == "pending-pod").unwrap();
-        assert_eq!(loaded, default, "with no user file, loading returns the shipped default verbatim");
+        let default = builtin_skills()
+            .into_iter()
+            .find(|s| s.name == "pending-pod")
+            .unwrap();
+        assert_eq!(
+            loaded, default,
+            "with no user file, loading returns the shipped default verbatim"
+        );
     }
 
     #[test]
@@ -708,6 +834,9 @@ mod tests {
         let tmp = TempDir::new();
         let dir = skills_dir(tmp.path());
         let err = load_skill_or_builtin(&dir, "no-such-skill").unwrap_err();
-        assert!(err.contains("no-such-skill"), "error should name the missing skill, got: {err}");
+        assert!(
+            err.contains("no-such-skill"),
+            "error should name the missing skill, got: {err}"
+        );
     }
 }

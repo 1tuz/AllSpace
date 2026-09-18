@@ -45,9 +45,7 @@ pub async fn devops_credential_clear(
 /// Status deliberately contains only references. Neither usernames nor secret
 /// values leave the vault.
 #[tauri::command]
-pub async fn devops_credential_status(
-    app: tauri::AppHandle,
-) -> Result<Vec<CredentialRef>, String> {
+pub async fn devops_credential_status(app: tauri::AppHandle) -> Result<Vec<CredentialRef>, String> {
     let vault = app.state::<std::sync::Arc<crate::vault::Vault>>();
     let store = crate::vault::VaultCredentialStore::new(vault.inner().clone());
     Ok(store.configured())
@@ -60,6 +58,9 @@ mod tests {
 
     #[test]
     fn refuses_blank_profile_ids_before_touching_the_vault() {
-        assert_eq!(reference("  ".into(), Provider::Gitlab), Err("profile id cannot be empty".into()));
+        assert_eq!(
+            reference("  ".into(), Provider::Gitlab),
+            Err("profile id cannot be empty".into())
+        );
     }
 }

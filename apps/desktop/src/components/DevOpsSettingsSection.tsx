@@ -25,6 +25,9 @@ export type ProfileDraft = {
   bitbucketProjects: string;
   jenkinsUrl: string;
   jenkinsJobs: string;
+  /** Explicit TLS escape hatch for private-CA corporate endpoints. */
+  allowInsecure: boolean;
+  caBundlePath: string;
 };
 
 const EMPTY_DRAFT: ProfileDraft = {
@@ -37,6 +40,8 @@ const EMPTY_DRAFT: ProfileDraft = {
   bitbucketProjects: "",
   jenkinsUrl: "",
   jenkinsJobs: "",
+  allowInsecure: false,
+  caBundlePath: "",
 };
 
 function splitFilters(raw: string): string[] {
@@ -59,6 +64,8 @@ function draftFor(profile?: DevOpsProfile): ProfileDraft {
         bitbucketProjects: bitbucket?.projectFilters.join("\n") ?? "",
         jenkinsUrl: jenkins?.baseUrl ?? "",
         jenkinsJobs: jenkins?.projectFilters.join("\n") ?? "",
+        allowInsecure: profile.tls?.allowInsecure === true,
+        caBundlePath: profile.tls?.caBundlePath ?? "",
       }
     : EMPTY_DRAFT;
 }
@@ -80,10 +87,21 @@ export function draftFromContour(id: ContourId): ProfileDraft {
     bitbucketProjects: (bitbucket?.projectFilters ?? []).join("\n"),
     jenkinsUrl: jenkins?.baseUrl ?? "",
     jenkinsJobs: (jenkins?.projectFilters ?? []).join("\n"),
+    // Corporate private-CA contours opt in explicitly — never a silent global.
+    allowInsecure: contour.tls?.allowInsecure === true,
+    caBundlePath: contour.tls?.caBundlePath ?? "",
   };
 }
 
 export function profileFor(draft: ProfileDraft): DevOpsProfile {
+  const ca = draft.caBundlePath.trim();
+  const tls =
+    draft.allowInsecure || ca
+      ? {
+          allowInsecure: draft.allowInsecure,
+          ...(ca ? { caBundlePath: ca } : {}),
+        }
+      : undefined;
   return {
     id: draft.id.trim(),
     label: draft.label.trim(),
@@ -116,6 +134,7 @@ export function profileFor(draft: ProfileDraft): DevOpsProfile {
           }]
         : []),
     ],
+    ...(tls ? { tls } : {}),
   };
 }
 
@@ -246,7 +265,11 @@ export function DevOpsSettingsSection() {
     }
   }
 
-  function field(name: keyof ProfileDraft, label: string, placeholder: string) {
+  function field(
+    name: Exclude<keyof ProfileDraft, "allowInsecure">,
+    label: string,
+    placeholder: string,
+  ) {
     return (
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-xs text-muted-foreground">{label}</span>
@@ -261,7 +284,7 @@ export function DevOpsSettingsSection() {
         <h2 className="text-lg font-semibold">DevOps sources</h2>
         <p className="text-sm text-muted-foreground">
           Profiles keep endpoint metadata. Credentials are encrypted locally and this screen never reads them back.
-          Contour presets match sibling AppFarm / Komus repos — see docs/devops-cockpit/CONTOURS.md.
+          Contour presets match sibling AppFarm / Komus repos — see docs/CONTOURS.md.
         </p>
       </div>
 
@@ -292,6 +315,32 @@ export function DevOpsSettingsSection() {
         {field("bitbucketProjects", "Bitbucket projects", "CORP")}
         {field("jenkinsUrl", "Jenkins base URL", "https://p-doffice-cicd01.komus.net")}
         {field("jenkinsJobs", "Jenkins job path prefixes", "folder/job")}
+        <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-3" data-testid="tls-settings">
+          <p className="text-xs font-medium text-muted-foreground">TLS</p>
+          <p className="text-xs text-muted-foreground">
+            Default: system trust. Prefer a corporate CA PEM when available. Allow insecure only as an explicit escape hatch for private CA endpoints.
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={draft.allowInsecure}
+              onChange={(event) => setDraft((current) => ({ ...current, allowInsecure: event.target.checked }))}
+              aria-label="Allow insecure TLS"
+            />
+            Allow insecure TLS (skip certificate verification)
+          </label>
+          {draft.allowInsecure && !draft.caBundlePath.trim() && (
+            <p
+              className="text-xs text-amber-700 dark:text-amber-400"
+              role="status"
+              data-testid="tls-insecure-without-ca-warning"
+            >
+              Insecure TLS skips certificate verification. Prefer a corporate CA PEM path when you have one;
+              leave Allow insecure on only as an explicit escape hatch for private-CA endpoints.
+            </p>
+          )}
+          {field("caBundlePath", "Corporate CA PEM path (optional)", "/etc/ssl/certs/corp-ca.pem")}
+        </div>
         <div><Button onClick={saveProfile} disabled={busy}>Save profile</Button></div>
       </div>
 

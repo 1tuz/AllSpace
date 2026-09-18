@@ -36,7 +36,11 @@ pub async fn vault_status(
 ) -> Result<VaultStatus, String> {
     use tauri_plugin_biometry::BiometryExt;
     let dir = vault_biometric::vault_dir(&app)?;
-    let biometric_available = app.biometry().status().map(|s| s.is_available).unwrap_or(false);
+    let biometric_available = app
+        .biometry()
+        .status()
+        .map(|s| s.is_available)
+        .unwrap_or(false);
     Ok(status_core(&vault, &dir, biometric_available))
 }
 
@@ -83,8 +87,13 @@ pub async fn vault_setup_password(
     // password (even refreshing a biometric item with its newer key) while
     // this process was still blocked here — then resume and purge that
     // valid enrollment out from under it.
-    let _transition =
-        setup_password_core(&vault, &dir, &vault::KeyringRecovery, &password, keep_recovery)?;
+    let _transition = setup_password_core(
+        &vault,
+        &dir,
+        &vault::KeyringRecovery,
+        &password,
+        keep_recovery,
+    )?;
     // The machine key's KEYCHAIN home is retired here, not in the core: it
     // is the real OS keychain's `master-key` entry, and the #28 seam exists
     // precisely so the unit suite can never touch it — a test run on a
@@ -111,7 +120,9 @@ fn setup_password_core(
     keep_recovery: bool,
 ) -> Result<std::fs::File, String> {
     if password.len() < MIN_PASSWORD_LEN {
-        return Err(format!("the master password must be at least {MIN_PASSWORD_LEN} characters"));
+        return Err(format!(
+            "the master password must be at least {MIN_PASSWORD_LEN} characters"
+        ));
     }
     // The whole setup — existence check, recovery mutation, stage, re-key,
     // promote — runs under the inter-process transition lock, so two
@@ -284,7 +295,9 @@ fn change_password_core(
     new: &str,
 ) -> Result<([u8; 32], std::fs::File), String> {
     if new.len() < MIN_PASSWORD_LEN {
-        return Err(format!("the new password must be at least {MIN_PASSWORD_LEN} characters"));
+        return Err(format!(
+            "the new password must be at least {MIN_PASSWORD_LEN} characters"
+        ));
     }
     // The WHOLE change — meta read, current-password verification, recovery
     // mutation, stage, re-key, promote — runs under one inter-process
@@ -445,8 +458,14 @@ mod tests {
         // but no usable key either" (e.g. stray corruption cleanup).
         let dir = temp_dir("setup-locked");
         let first = fresh_vault(&dir);
-        setup_password_core(&first, &dir, &MemRecovery::default(), &test_pw("locked"), false)
-            .unwrap();
+        setup_password_core(
+            &first,
+            &dir,
+            &MemRecovery::default(),
+            &test_pw("locked"),
+            false,
+        )
+        .unwrap();
         let locked = fresh_vault(&dir);
         std::fs::remove_file(vault::meta_path(&dir)).unwrap();
         let e = setup_password_core(&locked, &dir, &MemRecovery::default(), &test_pw("x"), false)
@@ -464,7 +483,10 @@ mod tests {
         let pw = test_pw("recover-on");
         setup_password_core(&vault, &dir, &recovery, &pw, true).unwrap();
         assert_eq!(recovery.main.lock().unwrap().as_deref(), Some(pw.as_str()));
-        assert!(recovery.staged.lock().unwrap().is_none(), "stale stage purged");
+        assert!(
+            recovery.staged.lock().unwrap().is_none(),
+            "stale stage purged"
+        );
         assert!(vault::recovery_marker_path(&dir).exists());
         // The machine-key file is retired.
         assert!(!dir.join("master.key").exists());
@@ -487,9 +509,11 @@ mod tests {
     fn setup_rolls_back_recovery_when_the_keychain_fails() {
         let dir = temp_dir("setup-broken");
         let vault = fresh_vault(&dir);
-        let recovery = MemRecovery { broken: true, ..Default::default() };
-        let e =
-            setup_password_core(&vault, &dir, &recovery, &test_pw("broken"), true).unwrap_err();
+        let recovery = MemRecovery {
+            broken: true,
+            ..Default::default()
+        };
+        let e = setup_password_core(&vault, &dir, &recovery, &test_pw("broken"), true).unwrap_err();
         assert!(e.contains("unreachable"), "got: {e}");
         // Nothing changed: still setup-required, no marker.
         assert!(!vault::meta_path(&dir).exists());
@@ -502,14 +526,18 @@ mod tests {
         let vault = fresh_vault(&dir);
         let pw = test_pw("unlock");
         setup_password_core(&vault, &dir, &MemRecovery::default(), &pw, false).unwrap();
-        vault.update(|s| s.mcp_token = Some(test_pw("token"))).unwrap();
+        vault
+            .update(|s| s.mcp_token = Some(test_pw("token")))
+            .unwrap();
 
         let reopened = fresh_vault(&dir);
-        let e = vault::unlock_with_master_password(&reopened, &dir, &test_pw("wrong"))
-            .unwrap_err();
+        let e = vault::unlock_with_master_password(&reopened, &dir, &test_pw("wrong")).unwrap_err();
         assert!(!e.is_empty());
         vault::unlock_with_master_password(&reopened, &dir, &pw).unwrap();
-        assert_eq!(reopened.load().mcp_token.as_deref(), Some(test_pw("token").as_str()));
+        assert_eq!(
+            reopened.load().mcp_token.as_deref(),
+            Some(test_pw("token").as_str())
+        );
         assert_eq!(reopened.key_source(), "password");
     }
 
@@ -522,7 +550,10 @@ mod tests {
         setup_password_core(&vault, &dir, &recovery, &pw, true).unwrap();
 
         let reopened = fresh_vault(&dir);
-        assert_eq!(recover_password_core(&reopened, &dir, &recovery).unwrap(), pw);
+        assert_eq!(
+            recover_password_core(&reopened, &dir, &recovery).unwrap(),
+            pw
+        );
         assert_eq!(reopened.key_source(), "password");
 
         // Without the marker, the copy is never consulted — opt-out is
@@ -549,8 +580,14 @@ mod tests {
         *recovery.staged.lock().unwrap() = Some(new_pw.clone());
 
         let reopened = fresh_vault(&dir);
-        assert_eq!(recover_password_core(&reopened, &dir, &recovery).unwrap(), new_pw);
-        assert_eq!(recovery.main.lock().unwrap().as_deref(), Some(new_pw.as_str()));
+        assert_eq!(
+            recover_password_core(&reopened, &dir, &recovery).unwrap(),
+            new_pw
+        );
+        assert_eq!(
+            recovery.main.lock().unwrap().as_deref(),
+            Some(new_pw.as_str())
+        );
         assert!(recovery.staged.lock().unwrap().is_none(), "stage promoted");
     }
 
@@ -574,10 +611,18 @@ mod tests {
         let recovery = MemRecovery::default();
         let old_pw = test_pw("change-old");
         setup_password_core(&vault, &dir, &recovery, &old_pw, false).unwrap();
-        vault.update(|s| s.mcp_token = Some(test_pw("keep"))).unwrap();
+        vault
+            .update(|s| s.mcp_token = Some(test_pw("keep")))
+            .unwrap();
 
-        let e = change_password_core(&vault, &dir, &recovery, &test_pw("wrong-cur"), &test_pw("n"))
-            .unwrap_err();
+        let e = change_password_core(
+            &vault,
+            &dir,
+            &recovery,
+            &test_pw("wrong-cur"),
+            &test_pw("n"),
+        )
+        .unwrap_err();
         assert!(!e.is_empty());
         let short = &test_pw("s")[..1];
         let e = change_password_core(&vault, &dir, &recovery, &old_pw, short).unwrap_err();
@@ -590,7 +635,10 @@ mod tests {
         let reopened = fresh_vault(&dir);
         assert!(vault::unlock_with_master_password(&reopened, &dir, &old_pw).is_err());
         vault::unlock_with_master_password(&reopened, &dir, &new_pw).unwrap();
-        assert_eq!(reopened.load().mcp_token.as_deref(), Some(test_pw("keep").as_str()));
+        assert_eq!(
+            reopened.load().mcp_token.as_deref(),
+            Some(test_pw("keep").as_str())
+        );
     }
 
     #[test]
@@ -602,8 +650,14 @@ mod tests {
         setup_password_core(&vault, &dir, &recovery, &old_pw, true).unwrap();
         let new_pw = test_pw("cr-new");
         change_password_core(&vault, &dir, &recovery, &old_pw, &new_pw).unwrap();
-        assert_eq!(recovery.main.lock().unwrap().as_deref(), Some(new_pw.as_str()));
-        assert!(recovery.staged.lock().unwrap().is_none(), "stage promoted after the meta");
+        assert_eq!(
+            recovery.main.lock().unwrap().as_deref(),
+            Some(new_pw.as_str())
+        );
+        assert!(
+            recovery.staged.lock().unwrap().is_none(),
+            "stage promoted after the meta"
+        );
     }
 
     #[test]
@@ -617,9 +671,12 @@ mod tests {
         let old_pw = test_pw("cb-old");
         setup_password_core(&vault, &dir, &working, &old_pw, true).unwrap();
 
-        let broken = MemRecovery { broken: true, ..Default::default() };
-        let e = change_password_core(&vault, &dir, &broken, &old_pw, &test_pw("cb-new"))
-            .unwrap_err();
+        let broken = MemRecovery {
+            broken: true,
+            ..Default::default()
+        };
+        let e =
+            change_password_core(&vault, &dir, &broken, &old_pw, &test_pw("cb-new")).unwrap_err();
         assert!(e.contains("unreachable"), "got: {e}");
         // The change never started: the old password still unlocks.
         let reopened = fresh_vault(&dir);
@@ -641,7 +698,10 @@ mod tests {
         assert!(locked.current_key().is_none());
         let new_pw = test_pw("cl-new");
         change_password_core(&locked, &dir, &recovery, &old_pw, &new_pw).unwrap();
-        assert!(locked.current_key().is_some(), "unlocked inline by the change");
+        assert!(
+            locked.current_key().is_some(),
+            "unlocked inline by the change"
+        );
     }
 
     // ---- Lock (`Lock now` in Settings) --------------------------------
@@ -655,8 +715,17 @@ mod tests {
     fn a_set_up_unlocked_vault() -> (Vault, std::path::PathBuf) {
         let dir = temp_dir("lock");
         let vault = fresh_vault(&dir);
-        setup_password_core(&vault, &dir, &MemRecovery::default(), LOCK_PASSPHRASE, false).unwrap();
-        vault.update(|s| s.mcp_token = Some(test_pw("lock-token"))).unwrap();
+        setup_password_core(
+            &vault,
+            &dir,
+            &MemRecovery::default(),
+            LOCK_PASSPHRASE,
+            false,
+        )
+        .unwrap();
+        vault
+            .update(|s| s.mcp_token = Some(test_pw("lock-token")))
+            .unwrap();
         (vault, dir)
     }
 
@@ -705,7 +774,11 @@ mod tests {
         // (It also clears the `unused_must_use` warning the bare call raised.)
         lock_core(&vault).expect("an unlocked vault can be locked");
         assert!(!vault.is_unlocked(), "and the key really was discarded");
-        assert_eq!(sealed_bytes(&dir), before, "locking must not rewrite the vault");
+        assert_eq!(
+            sealed_bytes(&dir),
+            before,
+            "locking must not rewrite the vault"
+        );
     }
 
     #[test]
@@ -718,8 +791,15 @@ mod tests {
         let s = status_core(&vault, &dir, false);
         assert_eq!(s.mode, "locked");
         assert_eq!(s.key_source, "password-locked");
-        assert!(vault.update(|s| s.mcp_token = None).is_err(), "locked writes fail loudly");
-        assert_eq!(vault.load().mcp_token, None, "and reads are empty while locked");
+        assert!(
+            vault.update(|s| s.mcp_token = None).is_err(),
+            "locked writes fail loudly"
+        );
+        assert_eq!(
+            vault.load().mcp_token,
+            None,
+            "and reads are empty while locked"
+        );
     }
 
     // ---- Lock vs. an in-flight vault write (`Cmd+Shift+L` mid-change) ----
@@ -801,12 +881,17 @@ mod tests {
         // must not land yet. Unserialised it lands in microseconds and the
         // re-key writes the key straight back over it; that is the defect.
         assert!(
-            locked_rx.recv_timeout(std::time::Duration::from_millis(300)).is_err(),
+            locked_rx
+                .recv_timeout(std::time::Duration::from_millis(300))
+                .is_err(),
             "the lock discarded the key while a re-key held the vault",
         );
 
         drop(held);
-        rekeying.join().unwrap().expect("the re-key itself completes");
+        rekeying
+            .join()
+            .unwrap()
+            .expect("the re-key itself completes");
         locked_rx
             .recv_timeout(std::time::Duration::from_secs(10))
             .expect("the lock lands once the re-key releases the vault")
@@ -817,7 +902,11 @@ mod tests {
             !vault.is_unlocked(),
             "a lock that resolved must not be undone by the re-key it raced",
         );
-        assert_eq!(vault.key_source(), "password-locked", "and it reads as locked");
+        assert_eq!(
+            vault.key_source(),
+            "password-locked",
+            "and it reads as locked"
+        );
     }
 
     /// The same property stated as serialisation rather than as an outcome: a
@@ -861,7 +950,9 @@ mod tests {
             std::thread::spawn(move || {
                 // Nothing before this line touches the vault, so this thread
                 // cannot win a race it is not yet allowed to enter.
-                entered_rx.recv().expect("the write announces its critical section");
+                entered_rx
+                    .recv()
+                    .expect("the write announces its critical section");
                 let _ = locked_tx.send(vault.discard_key());
             })
         };
@@ -874,12 +965,16 @@ mod tests {
                 // discard does next is racing a write that is already in.
                 // Unbounded, so this never blocks on a thread that has not
                 // reached its `recv` yet.
-                entered_tx.send(()).expect("the lock thread is waiting to be let go");
+                entered_tx
+                    .send(())
+                    .expect("the lock thread is waiting to be let go");
                 // An unserialised discard lands here in microseconds; a
                 // serialised one cannot land at all until this closure returns
                 // and the guard drops.
                 assert!(
-                    locked_rx.recv_timeout(std::time::Duration::from_millis(300)).is_err(),
+                    locked_rx
+                        .recv_timeout(std::time::Duration::from_millis(300))
+                        .is_err(),
                     "the lock discarded the key while a vault write held the lock",
                 );
             })
@@ -901,7 +996,10 @@ mod tests {
         // setup itself refuses a locked vault. Nothing is discarded.
         let dir = temp_dir("lock-presetup");
         let vault = fresh_vault(&dir);
-        assert!(vault.is_unlocked(), "a fresh machine-key vault resolves a key");
+        assert!(
+            vault.is_unlocked(),
+            "a fresh machine-key vault resolves a key"
+        );
         let e = lock_core(&vault).unwrap_err();
         assert!(e.contains("no master password"), "got: {e}");
         assert!(vault.is_unlocked(), "the key is still there");

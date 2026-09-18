@@ -19,7 +19,10 @@ pub struct CacheWatcher {
 
 impl CacheWatcher {
     pub fn new(cache: Arc<ClientCache>) -> Self {
-        Self { cache, kinds: srelens_registry::kind_resolver() }
+        Self {
+            cache,
+            kinds: srelens_registry::kind_resolver(),
+        }
     }
 }
 
@@ -30,7 +33,14 @@ impl ObjectWatcher for CacheWatcher {
         on_change: Box<dyn FnMut() + Send>,
         on_dead: Box<dyn FnOnce(String) + Send>,
     ) -> Result<tokio::task::AbortHandle, String> {
-        let ResourceUri::Object { context, namespace, kind, name, .. } = uri else {
+        let ResourceUri::Object {
+            context,
+            namespace,
+            kind,
+            name,
+            ..
+        } = uri
+        else {
             return Err("only object URIs can be watched".to_string());
         };
 
@@ -62,11 +72,9 @@ impl ObjectWatcher for CacheWatcher {
                     "`{kind}` is namespaced; supply a namespace instead of `{CLUSTER_SCOPED}`"
                 ))
             }
-            (KindScope::ClusterScoped, Some(ns)) => {
-                return Err(format!(
-                    "`{kind}` is cluster-scoped; use `{CLUSTER_SCOPED}` for the namespace, not `{ns}`"
-                ))
-            }
+            (KindScope::ClusterScoped, Some(ns)) => return Err(format!(
+                "`{kind}` is cluster-scoped; use `{CLUSTER_SCOPED}` for the namespace, not `{ns}`"
+            )),
             _ => {}
         }
 
@@ -123,13 +131,15 @@ mod tests {
     /// spawning work and nothing panics.
     #[tokio::test]
     async fn spawns_a_watch_for_both_scopes_without_panicking() {
-        let cache = srelens_kube::client_cache::ClientCache::new(
-            std::path::PathBuf::from("/nonexistent/kubeconfig"),
-        );
+        let cache = srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from(
+            "/nonexistent/kubeconfig",
+        ));
         let w = CacheWatcher::new(cache);
         for uri in ["k8s://c/ns/Pod/web-0", "k8s://c/-/Node/node-1"] {
             let parsed = ResourceUri::parse(uri).unwrap();
-            let handle = w.watch(&parsed, Box::new(|| {}), Box::new(|_| {})).expect("spawns");
+            let handle = w
+                .watch(&parsed, Box::new(|| {}), Box::new(|_| {}))
+                .expect("spawns");
             handle.abort();
         }
     }
@@ -140,9 +150,9 @@ mod tests {
     /// loop evicts the registry entry.
     #[tokio::test]
     async fn reports_death_for_an_unresolvable_context() {
-        let cache = srelens_kube::client_cache::ClientCache::new(
-            std::path::PathBuf::from("/nonexistent/kubeconfig"),
-        );
+        let cache = srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from(
+            "/nonexistent/kubeconfig",
+        ));
         let w = CacheWatcher::new(cache);
         let parsed = ResourceUri::parse("k8s://c/ns/Pod/web-0").unwrap();
         let (tx, rx) = tokio::sync::oneshot::channel::<String>();
@@ -164,9 +174,9 @@ mod tests {
 
     #[tokio::test]
     async fn refuses_a_kind_it_cannot_resolve() {
-        let cache = srelens_kube::client_cache::ClientCache::new(
-            std::path::PathBuf::from("/nonexistent/kubeconfig"),
-        );
+        let cache = srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from(
+            "/nonexistent/kubeconfig",
+        ));
         let w = CacheWatcher::new(cache);
         let parsed = ResourceUri::parse("k8s://c/ns/Nonsense/x").unwrap();
         assert!(w.watch(&parsed, Box::new(|| {}), Box::new(|_| {})).is_err());
@@ -178,12 +188,14 @@ mod tests {
     /// namespace (see `watch_object`'s documented contract).
     #[tokio::test]
     async fn refuses_a_namespaced_kind_given_no_namespace() {
-        let cache = srelens_kube::client_cache::ClientCache::new(
-            std::path::PathBuf::from("/nonexistent/kubeconfig"),
-        );
+        let cache = srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from(
+            "/nonexistent/kubeconfig",
+        ));
         let w = CacheWatcher::new(cache);
         let parsed = ResourceUri::parse("k8s://c/-/Pod/web-0").unwrap();
-        let err = w.watch(&parsed, Box::new(|| {}), Box::new(|_| {})).unwrap_err();
+        let err = w
+            .watch(&parsed, Box::new(|| {}), Box::new(|_| {}))
+            .unwrap_err();
         assert!(err.contains("namespaced"), "got: {err}");
     }
 
@@ -191,12 +203,14 @@ mod tests {
     /// also be rejected, not silently scoped down to that namespace.
     #[tokio::test]
     async fn refuses_a_cluster_scoped_kind_given_a_namespace() {
-        let cache = srelens_kube::client_cache::ClientCache::new(
-            std::path::PathBuf::from("/nonexistent/kubeconfig"),
-        );
+        let cache = srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from(
+            "/nonexistent/kubeconfig",
+        ));
         let w = CacheWatcher::new(cache);
         let parsed = ResourceUri::parse("k8s://c/ns/Node/node-1").unwrap();
-        let err = w.watch(&parsed, Box::new(|| {}), Box::new(|_| {})).unwrap_err();
+        let err = w
+            .watch(&parsed, Box::new(|| {}), Box::new(|_| {}))
+            .unwrap_err();
         assert!(err.contains("cluster-scoped"), "got: {err}");
     }
 
@@ -208,12 +222,17 @@ mod tests {
     /// reason (an unresolvable kind also returns `Err`).
     #[tokio::test]
     async fn refuses_to_watch_a_secret() {
-        let cache = srelens_kube::client_cache::ClientCache::new(
-            std::path::PathBuf::from("/nonexistent/kubeconfig"),
-        );
+        let cache = srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from(
+            "/nonexistent/kubeconfig",
+        ));
         let w = CacheWatcher::new(cache);
         let parsed = ResourceUri::parse("k8s://c/ns/Secret/db-creds").unwrap();
-        let err = w.watch(&parsed, Box::new(|| {}), Box::new(|_| {})).unwrap_err();
-        assert!(err.contains("Secret") && err.contains("not addressable"), "got: {err}");
+        let err = w
+            .watch(&parsed, Box::new(|| {}), Box::new(|_| {}))
+            .unwrap_err();
+        assert!(
+            err.contains("Secret") && err.contains("not addressable"),
+            "got: {err}"
+        );
     }
 }

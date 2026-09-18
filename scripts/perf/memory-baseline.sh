@@ -53,11 +53,14 @@ APP_LOWER="$(echo "$APP" | tr '[:upper:]' '[:lower:]')"
 
 # Root PIDs: matched on the executable's BASENAME, never on arguments. An
 # argument match (`pgrep -f`) is wrong here — this repo's own path contains
-# "srelens", so every shell and build tool run from it would match.
+# "srelens", so every shell and build tool run from it would match. Exact
+# basename only: `index(comm, "srelens")` also falsely hits Cursor's
+# extension-host whose `comm` includes "srelens-mvp".
 root_pids() {
   ps -A -o pid=,comm= 2>/dev/null | awk -v app="$APP_LOWER" '
     { pid = $1; $1 = ""; sub(/^ +/, ""); n = split(tolower($0), parts, "/")
-      if (index(parts[n], app) > 0) print pid }'
+      bn = parts[n]
+      if (bn == app) print pid }'
 }
 
 # Roots plus every descendant, so Electron's differently-named helpers and

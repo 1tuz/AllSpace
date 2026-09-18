@@ -92,9 +92,13 @@ impl McpHttpManager {
                 audit_path.to_path_buf(),
                 5 * 1024 * 1024,
             )))
-            .with_prompts(srelens_mcp::prompts::PromptLibrary::new(Some(prompts_dir.to_path_buf())))
+            .with_prompts(srelens_mcp::prompts::PromptLibrary::new(Some(
+                prompts_dir.to_path_buf(),
+            )))
             .with_kind_resolver(srelens_registry::kind_resolver())
-            .with_watcher(std::sync::Arc::new(crate::mcp_watch::CacheWatcher::new(self.cache.clone())))
+            .with_watcher(std::sync::Arc::new(crate::mcp_watch::CacheWatcher::new(
+                self.cache.clone(),
+            )))
     }
 }
 
@@ -308,7 +312,12 @@ pub async fn mcp_token_rotate(
     let t = srelens_mcp::auth::Token::generate();
     store.save(&t).map_err(|e| e.to_string())?;
 
-    let running_port = manager.running.lock().unwrap().as_ref().map(|r| r.addr.port());
+    let running_port = manager
+        .running
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|r| r.addr.port());
     if let Some(port) = running_port {
         start_server(
             port,
@@ -377,8 +386,12 @@ pub fn mcp_audit_tail(
 /// Names the file in the refusal: the reader's next step is looking at it, and
 /// the path is theirs.
 fn audit_tail_at(path: &std::path::Path, limit: usize) -> Result<Vec<serde_json::Value>, String> {
-    srelens_mcp::audit::tail(path, limit)
-        .map_err(|e| format!("the MCP audit log at {} could not be read: {e}", path.display()))
+    srelens_mcp::audit::tail(path, limit).map_err(|e| {
+        format!(
+            "the MCP audit log at {} could not be read: {e}",
+            path.display()
+        )
+    })
 }
 
 /// Path to the audit log, managed so the command can read it without
@@ -393,9 +406,7 @@ pub struct McpPromptsDir(pub std::path::PathBuf);
 /// skipped and why — a silently-ignored file is a miserable authoring
 /// experience. Re-reads the directory, so it reflects the files on disk now.
 #[tauri::command]
-pub fn mcp_prompt_issues(
-    dir: State<'_, McpPromptsDir>,
-) -> Vec<srelens_mcp::prompts::LoadIssue> {
+pub fn mcp_prompt_issues(dir: State<'_, McpPromptsDir>) -> Vec<srelens_mcp::prompts::LoadIssue> {
     srelens_mcp::prompts::PromptLibrary::new(Some(dir.0.clone())).issues()
 }
 
@@ -618,8 +629,7 @@ mod tests {
         let appimage = std::env::current_exe().unwrap();
         let mount = appimage.parent().unwrap().to_path_buf();
         assert_eq!(
-            select_linux_cli_source(appimage.clone(), Some(appimage.clone()), Some(mount))
-                .unwrap(),
+            select_linux_cli_source(appimage.clone(), Some(appimage.clone()), Some(mount)).unwrap(),
             appimage
         );
     }
@@ -637,12 +647,9 @@ mod tests {
     fn inherited_appimage_environment_is_rejected() {
         let current = std::env::current_exe().unwrap();
         let unrelated_mount = std::path::PathBuf::from("/definitely-not-this-appimage-mount");
-        assert!(select_linux_cli_source(
-            current.clone(),
-            Some(current),
-            Some(unrelated_mount)
-        )
-        .is_err());
+        assert!(
+            select_linux_cli_source(current.clone(), Some(current), Some(unrelated_mount)).is_err()
+        );
     }
 
     /// The command boundary, where the distinction has to survive: the pane
@@ -675,7 +682,10 @@ mod tests {
             .expect_err("a trail that could not be read is not an empty trail");
 
         assert!(err.contains("could not be read"), "got: {err}");
-        assert!(err.contains("as-a-directory.jsonl"), "the reader's next step is the file: {err}");
+        assert!(
+            err.contains("as-a-directory.jsonl"),
+            "the reader's next step is the file: {err}"
+        );
     }
 
     #[test]
@@ -747,12 +757,10 @@ mod tests {
         // there is no await in teardown, the two never interleave, and the test
         // would pass against the racy code.
         let addr = {
-            let listener = tokio::net::TcpListener::bind(SocketAddr::from((
-                Ipv4Addr::LOCALHOST,
-                0,
-            )))
-            .await
-            .unwrap();
+            let listener =
+                tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+                    .await
+                    .unwrap();
             let addr = listener.local_addr().unwrap();
             let (tx, rx) = oneshot::channel::<()>();
             let handle = tokio::spawn(async move {
@@ -780,7 +788,9 @@ mod tests {
         });
 
         a.await.unwrap().expect("first transition must bind");
-        b.await.unwrap().expect("second transition must bind after the first tore down");
+        b.await
+            .unwrap()
+            .expect("second transition must bind after the first tore down");
     }
 
     #[tokio::test]
@@ -813,22 +823,24 @@ mod tests {
                 stop_running(&manager, &pending, &guard).await;
             }
 
-            tokio::net::TcpListener::bind(bound_addr).await.unwrap_or_else(|e| {
-                panic!("rebind attempt {i} on {bound_addr} failed: {e}")
-            });
+            tokio::net::TcpListener::bind(bound_addr)
+                .await
+                .unwrap_or_else(|e| panic!("rebind attempt {i} on {bound_addr} failed: {e}"));
         }
     }
 
     #[tokio::test]
     async fn session_token_is_none_when_the_server_is_stopped() {
-        let cache = srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from("/dev/null"));
+        let cache =
+            srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from("/dev/null"));
         let mgr = McpHttpManager::new(cache);
         assert!(mgr.session_token().is_none());
     }
 
     #[tokio::test]
     async fn session_token_is_the_running_servers_token() {
-        let cache = srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from("/dev/null"));
+        let cache =
+            srelens_kube::client_cache::ClientCache::new(std::path::PathBuf::from("/dev/null"));
         let mgr = McpHttpManager::new(cache);
 
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0)); // OS-assigned port

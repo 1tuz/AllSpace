@@ -173,7 +173,12 @@ mod tests {
 
     #[test]
     fn aur_repack_of_the_deb_is_externally_managed() {
-        assert!(!self_updatable("linux", Some(BundleType::Deb), false, false));
+        assert!(!self_updatable(
+            "linux",
+            Some(BundleType::Deb),
+            false,
+            false
+        ));
     }
 
     #[test]
@@ -184,12 +189,22 @@ mod tests {
     #[test]
     fn rpm_install_self_updates_only_with_rpm_present() {
         assert!(self_updatable("linux", Some(BundleType::Rpm), false, true));
-        assert!(!self_updatable("linux", Some(BundleType::Rpm), false, false));
+        assert!(!self_updatable(
+            "linux",
+            Some(BundleType::Rpm),
+            false,
+            false
+        ));
     }
 
     #[test]
     fn appimage_self_updates_without_any_package_tools() {
-        assert!(self_updatable("linux", Some(BundleType::AppImage), false, false));
+        assert!(self_updatable(
+            "linux",
+            Some(BundleType::AppImage),
+            false,
+            false
+        ));
     }
 
     #[test]

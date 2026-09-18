@@ -124,12 +124,18 @@ export function LogsView({
   namespace,
   source,
   initialContainer,
+  active = true,
 }: {
   context: string;
   namespace: string;
   source: LogsSource;
   /** Preselect this container instead of "all" (from a per-container action). */
   initialContainer?: string;
+  /**
+   * When false (inactive Dock tab), stop live-tail streams. Snapshot loads still
+   * allowed when the pane becomes active again.
+   */
+  active?: boolean;
 }) {
   const srcType = source.type;
   const srcPod = source.type === "pod" ? source.pod : "";
@@ -288,8 +294,10 @@ export function LogsView({
   }, [follow, load]);
 
   // Live-tail: open a multiplexed stream and append lines as they arrive.
+  // Inactive Dock panes must not keep the stream. Terminal panes stay mounted
+  // intentionally.
   useEffect(() => {
-    if (!follow) return;
+    if (!active || !follow) return;
     if (!targetsReady || targets.length === 0) {
       setLoading(true);
       setStreamStatus("connecting");
@@ -335,7 +343,7 @@ export function LogsView({
       streamRef.current?.stop();
       streamRef.current = null;
     };
-  }, [follow, context, namespace, targets, targetsReady, timestamps, sinceSeconds, tailLines]);
+  }, [active, follow, context, namespace, targets, targetsReady, timestamps, sinceSeconds, tailLines]);
 
   const visible = useMemo(() => {
     if (!search) return entries;

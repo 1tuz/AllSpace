@@ -47,7 +47,9 @@ fn checked_http_url(url: &str) -> Result<String, String> {
         .ok_or(REFUSED)?;
     // The authority runs to the first `/`, `?` or `#`; an empty one is not a
     // host, so `http://` on its own is not a URL either.
-    let authority = after_scheme.find(['/', '?', '#']).unwrap_or(after_scheme.len());
+    let authority = after_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(after_scheme.len());
     if authority == 0 {
         return Err(REFUSED.to_string());
     }
@@ -85,7 +87,10 @@ mod tests {
             "smb://fileserver/share",
             "mailto:someone@example.com",
         ] {
-            assert!(checked_http_url(url).is_err(), "should have been refused: {url}");
+            assert!(
+                checked_http_url(url).is_err(),
+                "should have been refused: {url}"
+            );
         }
     }
 
@@ -94,8 +99,18 @@ mod tests {
         // `forwardAddress` answers `localhost:12492` on the desktop. That is
         // not a URL, and repairing it here is the frontend's job (`browsable`)
         // so that this side stays a gate rather than a fixer-upper.
-        for url in ["localhost:12492", "/pf/7/", "", "http://", "https://", "http:/localhost"] {
-            assert!(checked_http_url(url).is_err(), "should have been refused: {url}");
+        for url in [
+            "localhost:12492",
+            "/pf/7/",
+            "",
+            "http://",
+            "https://",
+            "http:/localhost",
+        ] {
+            assert!(
+                checked_http_url(url).is_err(),
+                "should have been refused: {url}"
+            );
         }
     }
 
@@ -109,7 +124,10 @@ mod tests {
             "http://localhost:12492\u{0}",
             "http://local host:12492",
         ] {
-            assert!(checked_http_url(url).is_err(), "should have been refused: {url:?}");
+            assert!(
+                checked_http_url(url).is_err(),
+                "should have been refused: {url:?}"
+            );
         }
     }
 }

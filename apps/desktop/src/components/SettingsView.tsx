@@ -98,6 +98,7 @@ export type SettingsSection =
   | "layout"
   | "kubernetes"
   | "contexts"
+  | "devops"
   | "mcp"
   | "assistant"
   | "security"
@@ -155,6 +156,7 @@ export function SettingsView({
   theme,
   onThemeNameChange,
   onThemeModeChange,
+  onLiquidGlassChange,
   defaultNamespace,
   onDefaultNamespaceChange,
   layout,
@@ -173,6 +175,7 @@ export function SettingsView({
   theme: Theme;
   onThemeNameChange: (name: ThemeName) => void;
   onThemeModeChange: (mode: ThemeMode) => void;
+  onLiquidGlassChange?: (enabled: boolean) => void;
   defaultNamespace: string;
   onDefaultNamespaceChange: (namespace: string) => void;
   layout: WorkspaceLayoutSettings;
@@ -610,6 +613,21 @@ export function SettingsView({
                   </button>
                 ))}
               </div>
+              {onLiquidGlassChange && (
+                <div className="fl-settings-field" role="group" aria-label="Materials">
+                  <h3>Liquid glass</h3>
+                  <p className="fl-settings-hint">
+                    Frosted glass on workspace chrome. Turns off under prefers-reduced-transparency.
+                  </p>
+                  <Button
+                    type="button"
+                    aria-pressed={Boolean(theme.liquidGlass)}
+                    onClick={() => onLiquidGlassChange(!theme.liquidGlass)}
+                  >
+                    Liquid glass {theme.liquidGlass ? "on" : "off"}
+                  </Button>
+                </div>
+              )}
               <AppearanceSettingsSection />
             </SectionPanel>
           )}

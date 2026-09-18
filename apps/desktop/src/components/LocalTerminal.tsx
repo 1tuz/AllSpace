@@ -11,14 +11,23 @@ import { localTerminalDriver } from "@srelens/core";
 export function LocalTerminal({
   context,
   kubeconfigFiles,
+  active = true,
 }: {
   context: string;
   /** Extra kubeconfig files the app has been told about (merged for the shell). */
   kubeconfigFiles: string[];
+  /** When false (inactive Dock tab), close the live local PTY. */
+  active?: boolean;
 }) {
   const driver = useMemo(
     () => localTerminalDriver({ context, extraKubeconfigs: kubeconfigFiles }),
     [context, kubeconfigFiles],
   );
-  return <TerminalPane driver={driver} banner={`kubectl scoped to \x1b[1m${context}\x1b[0m`} />;
+  return (
+    <TerminalPane
+      driver={driver}
+      banner={`kubectl scoped to \x1b[1m${context}\x1b[0m`}
+      active={active}
+    />
+  );
 }

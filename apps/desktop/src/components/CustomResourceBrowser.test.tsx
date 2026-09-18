@@ -78,4 +78,14 @@ describe("CustomResourceBrowser", () => {
     render(<CustomResourceBrowser context="kind-dev" crd={crd} />);
     await waitFor(() => expect(screen.getByText(/could not find/)).toBeDefined());
   });
+
+  it("does not list while active is false", async () => {
+    listCustomResourceMock.mockResolvedValue({
+      items: [{ name: "demo-widget", namespace: "default", age: "1m" }],
+    });
+    render(<CustomResourceBrowser context="kind-dev" crd={crd} active={false} />);
+    await Promise.resolve();
+    expect(listNamespacesMock).not.toHaveBeenCalled();
+    expect(listCustomResourceMock).not.toHaveBeenCalled();
+  });
 });

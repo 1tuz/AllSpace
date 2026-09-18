@@ -130,8 +130,9 @@ export function SecuritySettingsSection() {
       <div>
         <h2 className="text-lg font-semibold">Security</h2>
         <p className="text-sm text-muted-foreground">
-          Stored secrets use the OS keychain by default. Add a master password only when you want
-          srelens to require it on future launches.
+          Stored secrets use the OS keychain by default. The launch password cover is off
+          (`srelens.vaultPasswordGate`); set that setting to <span className="font-mono text-xs">1</span>{" "}
+          to require unlock again. Master password / biometric setup below stays available as opt-in.
         </p>
       </div>
 

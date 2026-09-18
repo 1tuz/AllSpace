@@ -10,6 +10,8 @@ const { watchResource, useNamespaceOptions, cronjobSetSuspend } = vi.hoisted(() 
 
 vi.mock("@srelens/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@srelens/core")>()),
+  // Barrel override alone does not reach subscribeSharedKube's starter —
+  // beforeEach wires __setSharedKubeWatchStarterForTests(watchResource).
   watchResource: (...a: unknown[]) => watchResource(...a),
   cronjobSetSuspend: (...a: unknown[]) => cronjobSetSuspend(...a),
 }));
@@ -32,7 +34,13 @@ proto.hasPointerCapture ??= () => false;
 proto.setPointerCapture ??= () => {};
 proto.releasePointerCapture ??= () => {};
 
-import { resourceStatusLine, type ClusterContext, type K8sObject } from "@srelens/core";
+import {
+  resourceStatusLine,
+  type ClusterContext,
+  type K8sObject,
+  __resetSharedKubeSubscriptionsForTests,
+  __setSharedKubeWatchStarterForTests,
+} from "@srelens/core";
 import { Workloads } from "./Workloads";
 import { ConsoleProvider } from "../console";
 import * as store from "../lib/tabsStore";
@@ -83,6 +91,8 @@ let stop: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetSharedKubeSubscriptionsForTests();
+  __setSharedKubeWatchStarterForTests(watchResource);
   stop = vi.fn();
   watchResource.mockImplementation(
     async (

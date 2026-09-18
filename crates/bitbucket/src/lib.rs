@@ -10,6 +10,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const MAX_PAGES: usize = 100;
+const DEFAULT_MAX_DIFF_FILES: usize = 40;
+const HARD_MAX_DIFF_FILES: usize = 80;
+const MAX_PATCH_CHARS: usize = 12_000;
+/// Soft cap: CORP-scale projects can have hundreds of repos; unbounded PR/commit
+/// fan-out freezes the Git panel. Raise deliberately when product needs a deeper scan.
+const MAX_REPOS_PER_PROJECT: usize = 25;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BitbucketRequest {
@@ -75,18 +81,15 @@ pub struct ReqwestBitbucketTransport {
 
 impl ReqwestBitbucketTransport {
     pub fn new() -> Result<Self, BitbucketError> {
-        // This crate builds the HTTP client, so it must name the crypto
-        // provider itself: kube-client brings ring while GPUI's HTTP client
-        // brings aws-lc-rs, and with both linked rustls refuses to choose.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        // Komus Bitbucket DC uses private-CA TLS (sibling MCP: verify often off).
-        let client = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(20))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| BitbucketError::Transport(e.to_string()))?;
+        Self::with_tls(&srelens_devops_profiles::TlsConfig::default())
+    }
+
+    pub fn with_tls(tls: &srelens_devops_profiles::TlsConfig) -> Result<Self, BitbucketError> {
+        let client = srelens_devops_profiles::blocking_client(
+            tls,
+            BitbucketError::Transport,
+            |builder| builder.redirect(reqwest::redirect::Policy::none()),
+        )?;
         Ok(Self { client })
     }
 }
@@ -236,6 +239,44 @@ pub fn normalize_commit(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct BitbucketBranch {
+    pub id: String,
+    #[serde(default, rename = "displayId")]
+    pub display_id: Option<String>,
+    #[serde(default, rename = "latestCommit")]
+    pub latest_commit: Option<String>,
+    #[serde(default, rename = "isDefault")]
+    pub is_default: Option<bool>,
+}
+
+/// Convert a Bitbucket Data Center branch into the provider-neutral graph model.
+pub fn normalize_branch(
+    project_key: &str,
+    repository_slug: &str,
+    branch: &BitbucketBranch,
+) -> Entity {
+    let name = branch
+        .display_id
+        .clone()
+        .unwrap_or_else(|| branch.id.clone());
+    Entity {
+        id: format!("bitbucket:branch:{project_key}/{repository_slug}:{name}"),
+        kind: EntityKind::Branch,
+        source: Source::Bitbucket,
+        title: name.clone(),
+        url: None,
+        attributes: json!({
+            "projectKey": project_key,
+            "repositorySlug": repository_slug,
+            "name": name,
+            "sha": branch.latest_commit,
+            "default": branch.is_default.unwrap_or(false),
+            "ref": branch.id,
+        }),
+    }
+}
+
 pub struct BitbucketClient<T> {
     base_url: String,
     auth: BitbucketAuth,
@@ -343,6 +384,138 @@ impl<T: BitbucketTransport> BitbucketClient<T> {
         Ok(commits)
     }
 
+    pub fn list_branches(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+    ) -> Result<Vec<BitbucketBranch>, BitbucketError> {
+        let mut start = "0".to_owned();
+        let mut seen_starts = BTreeSet::new();
+        let mut branches = Vec::new();
+
+        while seen_starts.insert(start.clone()) {
+            if seen_starts.len() > MAX_PAGES {
+                return Err(BitbucketError::PaginationLimit);
+            }
+            let response = self.transport.get(BitbucketRequest {
+                url: format!(
+                    "{}/rest/api/1.0/projects/{project_key}/repos/{repository_slug}/branches?limit=100&start={start}",
+                    self.base_url
+                ),
+                headers: BTreeMap::from([("Authorization".into(), auth_header(&self.auth)?)]),
+            })?;
+            if !(200..300).contains(&response.status) {
+                return Err(BitbucketError::UnexpectedStatus(response.status));
+            }
+            let mut received: Vec<BitbucketBranch> =
+                serde_json::from_value(response.body["values"].clone())
+                    .map_err(|error| BitbucketError::InvalidResponse(error.to_string()))?;
+            branches.append(&mut received);
+
+            match response.next_page.filter(|next| !next.is_empty()) {
+                Some(next) if !seen_starts.contains(&next) => start = next,
+                Some(_) => return Err(BitbucketError::PaginationLimit),
+                None => break,
+            }
+        }
+
+        Ok(branches)
+    }
+
+    /// Bounded file list (+ optional hunk text) for one pull request.
+    pub fn get_pull_request_diff(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        max_files: usize,
+    ) -> Result<GetPullRequestDiffOut, BitbucketError> {
+        let max_files = max_files.clamp(1, HARD_MAX_DIFF_FILES);
+        let auth = auth_header(&self.auth)?;
+        let limit = (max_files + 1).min(100);
+        let response = self.transport.get(BitbucketRequest {
+            url: format!(
+                "{}/rest/api/1.0/projects/{project_key}/repos/{repository_slug}/pull-requests/{pull_request_id}/changes?limit={limit}&start=0",
+                self.base_url
+            ),
+            headers: BTreeMap::from([("Authorization".into(), auth.clone())]),
+        })?;
+        if !(200..300).contains(&response.status) {
+            return Err(BitbucketError::UnexpectedStatus(response.status));
+        }
+        let values = response.body["values"]
+            .as_array()
+            .ok_or_else(|| BitbucketError::InvalidResponse("missing values".into()))?;
+        let truncated = values.len() > max_files
+            || response
+                .next_page
+                .as_ref()
+                .is_some_and(|next| !next.is_empty())
+            || response.body["isLastPage"].as_bool() == Some(false);
+        let mut files: Vec<ChangeDiffFile> = values
+            .iter()
+            .take(max_files)
+            .map(normalize_bitbucket_change)
+            .collect();
+
+        // Best-effort patches from the PR-level JSON diff. Failure here still
+        // leaves the file list — that list is the primary answer.
+        if let Ok(patches) = self.fetch_pr_diff_patches(
+            project_key,
+            repository_slug,
+            pull_request_id,
+            &auth,
+        ) {
+            for file in &mut files {
+                if let Some(patch) = patches.get(&file.path) {
+                    file.patch = Some(bound_patch(patch.clone()));
+                }
+            }
+        }
+
+        Ok(GetPullRequestDiffOut {
+            total_files: files.len(),
+            truncated,
+            files,
+        })
+    }
+
+    fn fetch_pr_diff_patches(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        auth: &str,
+    ) -> Result<BTreeMap<String, String>, BitbucketError> {
+        let response = self.transport.get(BitbucketRequest {
+            url: format!(
+                "{}/rest/api/1.0/projects/{project_key}/repos/{repository_slug}/pull-requests/{pull_request_id}/diff?contextLines=3",
+                self.base_url
+            ),
+            headers: BTreeMap::from([("Authorization".into(), auth.to_owned())]),
+        })?;
+        if !(200..300).contains(&response.status) {
+            return Err(BitbucketError::UnexpectedStatus(response.status));
+        }
+        let mut out = BTreeMap::new();
+        let Some(diffs) = response.body["diffs"].as_array() else {
+            return Ok(out);
+        };
+        for diff in diffs {
+            let path = diff
+                .pointer("/destination/toString")
+                .or_else(|| diff.pointer("/source/toString"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_owned();
+            if path.is_empty() {
+                continue;
+            }
+            out.insert(path, format_bitbucket_hunks(diff));
+        }
+        Ok(out)
+    }
+
     /// List repository slugs of one project. Bitbucket has no cross-repository
     /// PR endpoint, so the caller iterates repositories first.
     pub fn list_repositories(&self, project_key: &str) -> Result<Vec<String>, BitbucketError> {
@@ -383,6 +556,83 @@ impl<T: BitbucketTransport> BitbucketClient<T> {
     }
 }
 
+fn normalize_bitbucket_change(value: &Value) -> ChangeDiffFile {
+    let path = value
+        .pointer("/path/toString")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_owned();
+    let old_path = value
+        .pointer("/srcPath/toString")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .filter(|old| old != &path);
+    let status = match value["type"].as_str().unwrap_or("") {
+        "ADD" => "added",
+        "DELETE" => "deleted",
+        "MOVE" | "COPY" | "RENAME" => "renamed",
+        _ => "modified",
+    };
+    ChangeDiffFile {
+        path,
+        old_path,
+        status: status.into(),
+        patch: None,
+    }
+}
+
+fn format_bitbucket_hunks(diff: &Value) -> String {
+    let mut out = String::new();
+    let Some(hunks) = diff["hunks"].as_array() else {
+        return out;
+    };
+    for hunk in hunks {
+        let src_line = hunk["sourceLine"].as_u64().unwrap_or(0);
+        let src_span = hunk["sourceSpan"].as_u64().unwrap_or(0);
+        let dst_line = hunk["destinationLine"].as_u64().unwrap_or(0);
+        let dst_span = hunk["destinationSpan"].as_u64().unwrap_or(0);
+        out.push_str(&format!(
+            "@@ -{src_line},{src_span} +{dst_line},{dst_span} @@\n"
+        ));
+        if let Some(segments) = hunk["segments"].as_array() {
+            for segment in segments {
+                let prefix = match segment["type"].as_str().unwrap_or("") {
+                    "ADDED" => '+',
+                    "REMOVED" => '-',
+                    _ => ' ',
+                };
+                if let Some(lines) = segment["lines"].as_array() {
+                    for line in lines {
+                        let text = line["text"].as_str().unwrap_or("");
+                        out.push(prefix);
+                        out.push_str(text);
+                        out.push('\n');
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn bound_patch(patch: String) -> String {
+    if patch.len() <= MAX_PATCH_CHARS {
+        return patch;
+    }
+    let mut cut = MAX_PATCH_CHARS;
+    while cut > 0 && !patch.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…", &patch[..cut])
+}
+
+fn resolve_max_diff_files(requested: Option<u32>) -> usize {
+    requested
+        .map(|n| n as usize)
+        .unwrap_or(DEFAULT_MAX_DIFF_FILES)
+        .clamp(1, HARD_MAX_DIFF_FILES)
+}
+
 impl std::fmt::Display for BitbucketError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -421,6 +671,9 @@ pub struct ListPullRequestsOut {
     pub pull_requests: Vec<Entity>,
     /// The project keys the filters actually visited.
     pub projects: Vec<String>,
+    /// True when at least one project had more repos than the soft fan-out cap.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -435,6 +688,24 @@ pub struct ListCommitsIn {
 pub struct ListCommitsOut {
     pub entities: Vec<Entity>,
     pub projects: Vec<String>,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ListBranchesIn {
+    #[serde(default)]
+    pub project_filters: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ListBranchesOut {
+    pub entities: Vec<Entity>,
+    pub projects: Vec<String>,
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 fn bitbucket_auth(
@@ -472,13 +743,26 @@ fn resolve_project_filters(
     Ok(filters)
 }
 
+/// Bound per-project repository fan-out so a broad project filter cannot hang
+/// the caller. Returns `(visited, truncated)`.
+fn take_repos_for_fanout(slugs: Vec<String>) -> (Vec<String>, bool) {
+    if slugs.len() <= MAX_REPOS_PER_PROJECT {
+        (slugs, false)
+    } else {
+        (
+            slugs.into_iter().take(MAX_REPOS_PER_PROJECT).collect(),
+            true,
+        )
+    }
+}
+
 /// `bitbucket.listPullRequests` — read pull requests of the active profile's
 /// Bitbucket Data Center projects.
 pub fn list_pull_requests_capability(
     store: Arc<dyn CredentialStore>,
     settings_get: Capability,
     transport: Arc<
-        dyn Fn() -> Result<Arc<dyn BitbucketTransport + Send + Sync>, BitbucketError> + Send + Sync,
+        dyn Fn(srelens_devops_profiles::TlsConfig) -> Result<Arc<dyn BitbucketTransport + Send + Sync>, BitbucketError> + Send + Sync,
     >,
 ) -> Capability {
     Capability::typed::<ListPullRequestsIn, ListPullRequestsOut, _, _>(
@@ -505,17 +789,20 @@ pub fn list_pull_requests_capability(
                     &connection.credential.secret,
                 )?;
 
-                let (pull_requests, projects) = tokio::task::spawn_blocking(move || {
-                    let transport = transport().map_err(|error| error.to_string())?;
+                let (pull_requests, projects, truncated) = tokio::task::spawn_blocking(move || {
+                    let transport = transport(connection.tls.clone()).map_err(|error| error.to_string())?;
                     let client = BitbucketClient::new(&connection.base_url, auth, transport)
                         .map_err(|error| error.to_string())?;
                     let mut pull_requests = Vec::new();
                     let mut projects = Vec::new();
+                    let mut truncated = false;
                     for project_key in &filters {
                         projects.push(project_key.clone());
                         let slugs = client
                             .list_repositories(project_key)
                             .map_err(|error| error.to_string())?;
+                        let (slugs, cut) = take_repos_for_fanout(slugs);
+                        truncated |= cut;
                         for slug in slugs {
                             let found = client
                                 .list_pull_requests(project_key, &slug)
@@ -525,7 +812,7 @@ pub fn list_pull_requests_capability(
                             }));
                         }
                     }
-                    Ok::<_, String>((pull_requests, projects))
+                    Ok::<_, String>((pull_requests, projects, truncated))
                 })
                 .await
                 .map_err(|error| {
@@ -536,6 +823,7 @@ pub fn list_pull_requests_capability(
                 Ok(ListPullRequestsOut {
                     pull_requests,
                     projects,
+                    truncated,
                 })
             }
         },
@@ -547,7 +835,7 @@ pub fn list_commits_capability(
     store: Arc<dyn CredentialStore>,
     settings_get: Capability,
     transport: Arc<
-        dyn Fn() -> Result<Arc<dyn BitbucketTransport + Send + Sync>, BitbucketError> + Send + Sync,
+        dyn Fn(srelens_devops_profiles::TlsConfig) -> Result<Arc<dyn BitbucketTransport + Send + Sync>, BitbucketError> + Send + Sync,
     >,
 ) -> Capability {
     Capability::typed::<ListCommitsIn, ListCommitsOut, _, _>(
@@ -574,17 +862,20 @@ pub fn list_commits_capability(
                     &connection.credential.secret,
                 )?;
 
-                let (entities, projects) = tokio::task::spawn_blocking(move || {
-                    let transport = transport().map_err(|error| error.to_string())?;
+                let (entities, projects, truncated) = tokio::task::spawn_blocking(move || {
+                    let transport = transport(connection.tls.clone()).map_err(|error| error.to_string())?;
                     let client = BitbucketClient::new(&connection.base_url, auth, transport)
                         .map_err(|error| error.to_string())?;
                     let mut entities = Vec::new();
                     let mut projects = Vec::new();
+                    let mut truncated = false;
                     for project_key in &filters {
                         projects.push(project_key.clone());
                         let slugs = client
                             .list_repositories(project_key)
                             .map_err(|error| error.to_string())?;
+                        let (slugs, cut) = take_repos_for_fanout(slugs);
+                        truncated |= cut;
                         for slug in slugs {
                             let found = client
                                 .list_commits(project_key, &slug)
@@ -596,7 +887,7 @@ pub fn list_commits_capability(
                             );
                         }
                     }
-                    Ok::<_, String>((entities, projects))
+                    Ok::<_, String>((entities, projects, truncated))
                 })
                 .await
                 .map_err(|error| {
@@ -604,7 +895,178 @@ pub fn list_commits_capability(
                 })?
                 .map_err(CapabilityError::Handler)?;
 
-                Ok(ListCommitsOut { entities, projects })
+                Ok(ListCommitsOut {
+                    entities,
+                    projects,
+                    truncated,
+                })
+            }
+        },
+    )
+}
+
+/// `bitbucket.listBranches` — list branches of the active profile's named projects.
+pub fn list_branches_capability(
+    store: Arc<dyn CredentialStore>,
+    settings_get: Capability,
+    transport: Arc<
+        dyn Fn(srelens_devops_profiles::TlsConfig) -> Result<Arc<dyn BitbucketTransport + Send + Sync>, BitbucketError> + Send + Sync,
+    >,
+) -> Capability {
+    Capability::typed::<ListBranchesIn, ListBranchesOut, _, _>(
+        "bitbucket.listBranches",
+        "list branches of the active DevOps profile's Bitbucket projects",
+        Annotations::READ_ONLY,
+        move |input| {
+            let store = store.clone();
+            let settings = settings_get.clone();
+            let transport = transport.clone();
+            async move {
+                let connection =
+                    active_connection(&settings, store.as_ref(), Provider::BitbucketDc)
+                        .await
+                        .map_err(|error| CapabilityError::Handler(error.to_string()))?;
+                let filters = resolve_project_filters(
+                    &input.project_filters,
+                    &connection.project_filters,
+                    &connection.profile_id,
+                )?;
+                let auth = bitbucket_auth(
+                    &connection.auth_method,
+                    &connection.credential.username,
+                    &connection.credential.secret,
+                )?;
+
+                let (entities, projects, truncated) = tokio::task::spawn_blocking(move || {
+                    let transport = transport(connection.tls.clone()).map_err(|error| error.to_string())?;
+                    let client = BitbucketClient::new(&connection.base_url, auth, transport)
+                        .map_err(|error| error.to_string())?;
+                    let mut entities = Vec::new();
+                    let mut projects = Vec::new();
+                    let mut truncated = false;
+                    for project_key in &filters {
+                        projects.push(project_key.clone());
+                        let slugs = client
+                            .list_repositories(project_key)
+                            .map_err(|error| error.to_string())?;
+                        let (slugs, cut) = take_repos_for_fanout(slugs);
+                        truncated |= cut;
+                        for slug in slugs {
+                            let found = client
+                                .list_branches(project_key, &slug)
+                                .map_err(|error| error.to_string())?;
+                            entities.extend(
+                                found
+                                    .iter()
+                                    .map(|branch| normalize_branch(project_key, &slug, branch)),
+                            );
+                        }
+                    }
+                    Ok::<_, String>((entities, projects, truncated))
+                })
+                .await
+                .map_err(|error| {
+                    CapabilityError::Handler(format!("the Bitbucket request task failed: {error}"))
+                })?
+                .map_err(CapabilityError::Handler)?;
+
+                Ok(ListBranchesOut {
+                    entities,
+                    projects,
+                    truncated,
+                })
+            }
+        },
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeDiffFile {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GetPullRequestDiffIn {
+    pub project_key: String,
+    pub repository_slug: String,
+    pub pull_request_id: u64,
+    #[serde(default)]
+    pub max_files: Option<u32>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GetPullRequestDiffOut {
+    pub files: Vec<ChangeDiffFile>,
+    pub truncated: bool,
+    /// Count of files returned in this payload (not the remote total).
+    pub total_files: usize,
+}
+
+/// `bitbucket.getPullRequestDiff` — lazy, bounded file diffs for one PR.
+pub fn get_pull_request_diff_capability(
+    store: Arc<dyn CredentialStore>,
+    settings_get: Capability,
+    transport: Arc<
+        dyn Fn(srelens_devops_profiles::TlsConfig) -> Result<Arc<dyn BitbucketTransport + Send + Sync>, BitbucketError>
+            + Send
+            + Sync,
+    >,
+) -> Capability {
+    Capability::typed::<GetPullRequestDiffIn, GetPullRequestDiffOut, _, _>(
+        "bitbucket.getPullRequestDiff",
+        "fetch a bounded file diff for one Bitbucket pull request",
+        Annotations::READ_ONLY,
+        move |input| {
+            let store = store.clone();
+            let settings = settings_get.clone();
+            let transport = transport.clone();
+            async move {
+                if input.project_key.trim().is_empty() || input.repository_slug.trim().is_empty() {
+                    return Err(CapabilityError::InvalidInput(
+                        "projectKey and repositorySlug are required".into(),
+                    ));
+                }
+                let connection =
+                    active_connection(&settings, store.as_ref(), Provider::BitbucketDc)
+                        .await
+                        .map_err(|error| CapabilityError::Handler(error.to_string()))?;
+                let auth = bitbucket_auth(
+                    &connection.auth_method,
+                    &connection.credential.username,
+                    &connection.credential.secret,
+                )?;
+                let max_files = resolve_max_diff_files(input.max_files);
+                let project_key = input.project_key.clone();
+                let repository_slug = input.repository_slug.clone();
+                let pull_request_id = input.pull_request_id;
+
+                tokio::task::spawn_blocking(move || {
+                    let transport =
+                        transport(connection.tls.clone()).map_err(|error| error.to_string())?;
+                    let client = BitbucketClient::new(&connection.base_url, auth, transport)
+                        .map_err(|error| error.to_string())?;
+                    client
+                        .get_pull_request_diff(
+                            &project_key,
+                            &repository_slug,
+                            pull_request_id,
+                            max_files,
+                        )
+                        .map_err(|error| error.to_string())
+                })
+                .await
+                .map_err(|error| {
+                    CapabilityError::Handler(format!("the Bitbucket request task failed: {error}"))
+                })?
+                .map_err(CapabilityError::Handler)
             }
         },
     )
@@ -830,6 +1292,59 @@ mod tests {
     }
 
     #[test]
+    fn lists_branches_and_normalizes_them() {
+        struct BranchTransport;
+
+        impl BitbucketTransport for BranchTransport {
+            fn get(&self, request: BitbucketRequest) -> Result<BitbucketResponse, BitbucketError> {
+                assert!(request.url.ends_with(
+                    "/rest/api/1.0/projects/KOMUS/repos/komusoffice-cicd/branches?limit=100&start=0"
+                ));
+                Ok(BitbucketResponse::json(
+                    200,
+                    None,
+                    json!({
+                        "values": [{
+                            "id": "refs/heads/feature/OPS-142-gate",
+                            "displayId": "feature/OPS-142-gate",
+                            "latestCommit": "deadbeefdeadbeef",
+                            "isDefault": false
+                        }]
+                    }),
+                ))
+            }
+        }
+
+        let client = BitbucketClient::new(
+            "https://bitbucket.example.test",
+            BitbucketAuth::BearerToken("http-access-token".into()),
+            BranchTransport,
+        )
+        .unwrap();
+        let branches = client.list_branches("KOMUS", "komusoffice-cicd").unwrap();
+
+        assert_eq!(branches.len(), 1);
+        assert_eq!(
+            normalize_branch("KOMUS", "komusoffice-cicd", &branches[0]),
+            Entity {
+                id: "bitbucket:branch:KOMUS/komusoffice-cicd:feature/OPS-142-gate".into(),
+                kind: EntityKind::Branch,
+                source: Source::Bitbucket,
+                title: "feature/OPS-142-gate".into(),
+                url: None,
+                attributes: json!({
+                    "projectKey": "KOMUS",
+                    "repositorySlug": "komusoffice-cicd",
+                    "name": "feature/OPS-142-gate",
+                    "sha": "deadbeefdeadbeef",
+                    "default": false,
+                    "ref": "refs/heads/feature/OPS-142-gate",
+                }),
+            }
+        );
+    }
+
+    #[test]
     fn lists_repository_slugs_across_pages() {
         let transport = FakeTransport::default();
         let client = BitbucketClient::new(
@@ -846,6 +1361,70 @@ mod tests {
         assert!(requests[0]
             .url
             .ends_with("/rest/api/1.0/projects/KOMUS/repos?limit=100&start=0"));
+    }
+
+    #[test]
+    fn get_pull_request_diff_bounds_files_and_attaches_patches() {
+        struct DiffTransport;
+
+        impl BitbucketTransport for DiffTransport {
+            fn get(&self, request: BitbucketRequest) -> Result<BitbucketResponse, BitbucketError> {
+                if request.url.contains("/changes") {
+                    return Ok(BitbucketResponse::json(
+                        200,
+                        None,
+                        json!({
+                            "isLastPage": true,
+                            "values": [
+                                { "type": "MODIFY", "path": { "toString": "a.txt" } },
+                                { "type": "ADD", "path": { "toString": "b.txt" } },
+                                { "type": "DELETE", "path": { "toString": "c.txt" } }
+                            ]
+                        }),
+                    ));
+                }
+                if request.url.contains("/diff") {
+                    return Ok(BitbucketResponse::json(
+                        200,
+                        None,
+                        json!({
+                            "diffs": [{
+                                "destination": { "toString": "a.txt" },
+                                "hunks": [{
+                                    "sourceLine": 1, "sourceSpan": 1,
+                                    "destinationLine": 1, "destinationSpan": 1,
+                                    "segments": [
+                                        { "type": "REMOVED", "lines": [{ "text": "x" }] },
+                                        { "type": "ADDED", "lines": [{ "text": "y" }] }
+                                    ]
+                                }]
+                            }]
+                        }),
+                    ));
+                }
+                Err(BitbucketError::UnexpectedStatus(404))
+            }
+        }
+
+        let client = BitbucketClient::new(
+            "https://bitbucket.example.test",
+            BitbucketAuth::BearerToken("t".into()),
+            DiffTransport,
+        )
+        .unwrap();
+        let out = client
+            .get_pull_request_diff("KOMUS", "repo", 42, 2)
+            .unwrap();
+        assert_eq!(out.files.len(), 2);
+        assert!(out.truncated);
+        assert_eq!(out.files[0].path, "a.txt");
+        assert_eq!(out.files[0].status, "modified");
+        assert!(out.files[0]
+            .patch
+            .as_deref()
+            .unwrap()
+            .contains("+y"));
+        assert_eq!(out.files[1].status, "added");
     }
 
     #[test]
@@ -895,6 +1474,48 @@ mod capability_tests {
                     json!({ "values": [{ "slug": "komusoffice-cicd" }] }),
                 ));
             }
+            if request.url.contains("/pull-requests/") && request.url.contains("/changes") {
+                return Ok(BitbucketResponse::json(
+                    200,
+                    None,
+                    json!({
+                        "isLastPage": true,
+                        "values": [
+                            {
+                                "type": "MODIFY",
+                                "path": { "toString": "src/gate.java" },
+                                "srcPath": { "toString": "src/gate.java" }
+                            },
+                            {
+                                "type": "ADD",
+                                "path": { "toString": "src/new.java" }
+                            }
+                        ]
+                    }),
+                ));
+            }
+            if request.url.contains("/pull-requests/") && request.url.contains("/diff") {
+                return Ok(BitbucketResponse::json(
+                    200,
+                    None,
+                    json!({
+                        "diffs": [{
+                            "source": { "toString": "src/gate.java" },
+                            "destination": { "toString": "src/gate.java" },
+                            "hunks": [{
+                                "sourceLine": 1,
+                                "sourceSpan": 1,
+                                "destinationLine": 1,
+                                "destinationSpan": 1,
+                                "segments": [
+                                    { "type": "REMOVED", "lines": [{ "text": "old" }] },
+                                    { "type": "ADDED", "lines": [{ "text": "new" }] }
+                                ]
+                            }]
+                        }]
+                    }),
+                ));
+            }
             if request.url.contains("/pull-requests") {
                 return Ok(BitbucketResponse::json(
                     200,
@@ -920,6 +1541,20 @@ mod capability_tests {
                             "id": "abc123def456",
                             "displayId": "abc123d",
                             "message": "Retry worker"
+                        }]
+                    }),
+                ));
+            }
+            if request.url.contains("/branches") {
+                return Ok(BitbucketResponse::json(
+                    200,
+                    None,
+                    json!({
+                        "values": [{
+                            "id": "refs/heads/feature/OPS-142",
+                            "displayId": "feature/OPS-142",
+                            "latestCommit": "abc123def456",
+                            "isDefault": false
                         }]
                     }),
                 ));
@@ -973,14 +1608,28 @@ mod capability_tests {
         registry.register(list_pull_requests_capability(
             store.clone(),
             settings_capability(filters.clone()),
-            Arc::new(move || {
+            Arc::new(move |_tls| {
                 Ok(pr_transport.clone() as Arc<dyn BitbucketTransport + Send + Sync>)
             }),
         ));
+        let commits_transport = transport.clone();
         registry.register(list_commits_capability(
+            store.clone(),
+            settings_capability(filters.clone()),
+            Arc::new(move |_tls| Ok(commits_transport.clone() as Arc<dyn BitbucketTransport + Send + Sync>)),
+        ));
+        let branches_transport = transport.clone();
+        registry.register(list_branches_capability(
+            store.clone(),
+            settings_capability(filters.clone()),
+            Arc::new(move |_tls| {
+                Ok(branches_transport.clone() as Arc<dyn BitbucketTransport + Send + Sync>)
+            }),
+        ));
+        registry.register(get_pull_request_diff_capability(
             store,
             settings_capability(filters),
-            Arc::new(move || Ok(transport.clone() as Arc<dyn BitbucketTransport + Send + Sync>)),
+            Arc::new(move |_tls| Ok(transport.clone() as Arc<dyn BitbucketTransport + Send + Sync>)),
         ));
         registry
     }
@@ -1002,6 +1651,7 @@ mod capability_tests {
             out["pullRequests"][0]["id"],
             "bitbucket:pr:KOMUS/komusoffice-cicd:42"
         );
+        assert_eq!(out["truncated"], json!(false));
         assert!(!out.to_string().contains("must-not-appear"));
         assert!(transport
             .urls
@@ -1014,6 +1664,72 @@ mod capability_tests {
             .invoke("bitbucket.listPullRequests", json!({ "project_filters": [] }))
             .await;
         assert!(matches!(wrong, Err(CapabilityError::InvalidInput(_))));
+    }
+
+    #[tokio::test]
+    async fn soft_caps_repository_fanout_per_project() {
+        struct ManyReposTransport {
+            urls: std::sync::Mutex<Vec<String>>,
+        }
+
+        impl BitbucketTransport for ManyReposTransport {
+            fn get(&self, request: BitbucketRequest) -> Result<BitbucketResponse, BitbucketError> {
+                self.urls.lock().unwrap().push(request.url.clone());
+                if request.url.contains("/repos?") {
+                    let values: Vec<_> = (0..(MAX_REPOS_PER_PROJECT + 15))
+                        .map(|i| json!({ "slug": format!("repo-{i}") }))
+                        .collect();
+                    return Ok(BitbucketResponse::json(200, None, json!({ "values": values })));
+                }
+                if request.url.contains("/pull-requests") {
+                    return Ok(BitbucketResponse::json(
+                        200,
+                        None,
+                        json!({
+                            "values": [{
+                                "id": 1,
+                                "title": "cap",
+                                "state": "OPEN",
+                                "links": { "self": [{ "href": "https://bitbucket.example.test/pr/1" }] },
+                                "fromRef": { "displayId": "a", "latestCommit": "abc" },
+                                "toRef": { "displayId": "master" }
+                            }]
+                        }),
+                    ));
+                }
+                Ok(BitbucketResponse::json(200, None, json!({ "values": [] })))
+            }
+        }
+
+        let transport = Arc::new(ManyReposTransport {
+            urls: std::sync::Mutex::new(vec![]),
+        });
+        let mut registry = Registry::new();
+        let pr_transport = transport.clone();
+        registry.register(list_pull_requests_capability(
+            store_with_token(),
+            settings_capability(vec!["CORP"]),
+            Arc::new(move |_tls| {
+                Ok(pr_transport.clone() as Arc<dyn BitbucketTransport + Send + Sync>)
+            }),
+        ));
+
+        let out = registry
+            .invoke("bitbucket.listPullRequests", json!({}))
+            .await
+            .expect("capped fan-out succeeds");
+
+        assert_eq!(out["truncated"], json!(true));
+        let pr_urls: Vec<_> = transport
+            .urls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|url| url.contains("/pull-requests"))
+            .cloned()
+            .collect();
+        assert_eq!(pr_urls.len(), MAX_REPOS_PER_PROJECT);
+        assert!(!pr_urls.iter().any(|url| url.contains("repo-40")));
     }
 
     #[tokio::test]
@@ -1040,6 +1756,33 @@ mod capability_tests {
     }
 
     #[tokio::test]
+    async fn lists_branches_using_the_callers_camel_case_payload() {
+        let transport = Arc::new(ScriptedTransport {
+            urls: std::sync::Mutex::new(vec![]),
+        });
+        let registry = registry_with(store_with_token(), vec!["KOMUS"], transport.clone());
+
+        let branches = registry
+            .invoke("bitbucket.listBranches", json!({ "projectFilters": ["KOMUS"] }))
+            .await
+            .expect("branches are listed");
+        assert_eq!(
+            branches["entities"][0]["id"],
+            "bitbucket:branch:KOMUS/komusoffice-cicd:feature/OPS-142"
+        );
+        assert!(transport
+            .urls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|url| url.contains("/branches")));
+        assert!(registry
+            .invoke("bitbucket.listBranches", json!({ "project_filters": [] }))
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
     async fn a_profile_that_names_no_project_refuses_instead_of_scanning_everything() {
         let transport = Arc::new(ScriptedTransport {
             urls: std::sync::Mutex::new(vec![]),
@@ -1053,5 +1796,50 @@ mod capability_tests {
 
         assert!(error.to_string().contains("refusing to scan everything"));
         assert!(transport.urls.lock().unwrap().is_empty(), "no request is made");
+    }
+
+    #[tokio::test]
+    async fn pull_request_diff_uses_the_callers_camel_case_payload() {
+        let transport = Arc::new(ScriptedTransport {
+            urls: std::sync::Mutex::new(vec![]),
+        });
+        let registry = registry_with(store_with_token(), vec!["KOMUS"], transport.clone());
+
+        let out = registry
+            .invoke(
+                "bitbucket.getPullRequestDiff",
+                json!({
+                    "projectKey": "KOMUS",
+                    "repositorySlug": "komusoffice-cicd",
+                    "pullRequestId": 42,
+                    "maxFiles": 10
+                }),
+            )
+            .await
+            .expect("pr diff");
+        assert_eq!(out["truncated"], false);
+        assert_eq!(out["totalFiles"], 2);
+        assert_eq!(out["files"][0]["path"], "src/gate.java");
+        assert_eq!(out["files"][0]["status"], "modified");
+        assert!(out["files"][0]["patch"].as_str().unwrap().contains("+new"));
+        assert!(!out.to_string().contains("must-not-appear"));
+        assert!(transport
+            .urls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|url| url.contains("/pull-requests/42/changes")));
+
+        assert!(registry
+            .invoke(
+                "bitbucket.getPullRequestDiff",
+                json!({
+                    "project_key": "KOMUS",
+                    "repository_slug": "komusoffice-cicd",
+                    "pull_request_id": 42
+                }),
+            )
+            .await
+            .is_err());
     }
 }

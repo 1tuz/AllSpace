@@ -4,9 +4,7 @@
  * beside it: no React, no store, no I/O, so the palette's *contents* can be
  * reasoned about without mounting the dock at all.
  *
- * Design: `docs/superpowers/specs/mock-full-design.md` §F (the agent dock).
- *
- * **`Go` is resource-scoped, not the route table.** §F's own mock reads
+ * **`Go` is resource-scoped, not the route table.** The dock mock reads
  * `Follow logs · checkout-api`, `Open shell in checkout-api`,
  * `Port forward checkout-api` — navigations about the resource the active
  * route names, the same subject `Action` uses, not a way to jump to an

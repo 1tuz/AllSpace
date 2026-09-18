@@ -11,10 +11,18 @@ export interface DevOpsProviderConfig {
 }
 
 /** Durable public configuration. Credentials deliberately do not belong here. */
+export interface DevOpsTlsConfig {
+  /** Explicit escape hatch — never implied. Default false = system trust. */
+  allowInsecure?: boolean;
+  /** Optional path to a PEM CA bundle (corporate private CA). */
+  caBundlePath?: string;
+}
+
 export interface DevOpsProfile {
   id: string;
   label: string;
   providers: DevOpsProviderConfig[];
+  tls?: DevOpsTlsConfig;
 }
 
 export interface DevOpsProfilesState {
@@ -27,6 +35,19 @@ export interface DevOpsCredentialRef {
   profileId: string;
   provider: DevOpsProvider;
 }
+
+/** Provider-neutral delivery entry. Matches Rust `DeliveryAnchor`. */
+export type DeliveryAnchor =
+  | { kind: "issue"; value: string; source?: string }
+  | { kind: "branch"; value: string; source?: string }
+  | { kind: "pullRequest"; value: string; source?: string }
+  | { kind: "commit"; value: string; source?: string }
+  | { kind: "build"; value: string; source?: string }
+  | { kind: "artifact"; value: string; source?: string }
+  | { kind: "deployment"; value: string; source?: string }
+  | { kind: "workload"; value: string; source?: string };
+
+export type DeliveryAnchorKind = DeliveryAnchor["kind"];
 
 export interface DevOpsTraceNode {
   id: string;
@@ -45,10 +66,25 @@ export interface DevOpsTraceEdge {
   evidence: { kind: string; detail: string }[];
 }
 
+export interface DevOpsTraceSituation {
+  level: string;
+  label: string;
+  primaryAction?: string;
+}
+
+export interface DevOpsChainVerdict {
+  summary: string;
+  severity: string;
+  primaryAction?: string;
+  ageSeconds?: number;
+}
+
 export interface DevOpsTrace {
   nodes: DevOpsTraceNode[];
   edges: DevOpsTraceEdge[];
-  situations: { level: string; label: string }[];
+  situations: DevOpsTraceSituation[];
+  /** Present when the chain had successful evidence to judge. */
+  verdict?: DevOpsChainVerdict;
   partial: boolean;
   sourceErrors: { source: string; message: string }[];
 }
@@ -66,24 +102,43 @@ export interface DevOpsRuntimeScope {
 /** Module-level TTL cache for live delivery traces — cleared on profile switch. */
 const traceDeliveryCache = new Map<string, TraceCacheEntry>();
 
+const LIST_TTL_MS = 30_000;
+
+type ListCacheEntry = { at: number; value: Promise<DevOpsDeliveryList> };
+
+/** Module-level TTL cache for My Work / listDeliveries — partitioned by profileId. */
+const listDeliveriesCache = new Map<string, ListCacheEntry>();
+
+/** Last selected profile — default cache partition when callers omit options.profileId. */
+let activeCacheProfileId = "";
+
 /** Drop cached delivery traces (call after profile select / upsert). */
 export function clearDevopsTraceCache(): void {
   traceDeliveryCache.clear();
+  listDeliveriesCache.clear();
 }
 
-export function devopsProfilesList(): Promise<DevOpsProfilesState> {
-  return invokeCapability("devops.profiles.list", {});
+function rememberActiveProfile(state: DevOpsProfilesState, fallback?: string): void {
+  activeCacheProfileId = state.activeProfileId ?? fallback ?? activeCacheProfileId;
+}
+
+export async function devopsProfilesList(): Promise<DevOpsProfilesState> {
+  const state = await invokeCapability<DevOpsProfilesState>("devops.profiles.list", {});
+  rememberActiveProfile(state);
+  return state;
 }
 
 export async function devopsProfileUpsert(profile: DevOpsProfile, select = false): Promise<DevOpsProfilesState> {
   const state = await invokeCapability<DevOpsProfilesState>("devops.profiles.upsert", { profile, select });
   clearDevopsTraceCache();
+  rememberActiveProfile(state, select ? profile.id : undefined);
   return state;
 }
 
 export async function devopsProfileSelect(profileId: string): Promise<DevOpsProfilesState> {
   const state = await invokeCapability<DevOpsProfilesState>("devops.profiles.select", { profileId });
   clearDevopsTraceCache();
+  rememberActiveProfile(state, profileId);
   return state;
 }
 
@@ -106,40 +161,182 @@ export function devopsCredentialStatus(): Promise<DevOpsCredentialRef[]> {
   return invokeCommand("devops_credential_status");
 }
 
+function anchorCacheKey(anchor: DeliveryAnchor): string {
+  return `${anchor.kind}\u0000${anchor.value}\u0000${anchor.source ?? ""}`;
+}
+
+function tracePayload(anchor: DeliveryAnchor, scope?: DevOpsRuntimeScope): Record<string, unknown> {
+  const runtimeScope = scope?.kubeContext
+    ? { kubeContext: scope.kubeContext, namespaces: scope.namespaces ?? [] }
+    : {};
+  // Prefer the multi-anchor contract. Legacy issueKey kept only for issue anchors
+  // so older backends still accept the call during rollout.
+  if (anchor.kind === "issue") {
+    return { anchor, issueKey: anchor.value, ...runtimeScope };
+  }
+  return { anchor, ...runtimeScope };
+}
+
+/** Optional cache-partition key — AppFarm vs Komus must not share a TTL hit. */
+export interface DevOpsTraceOptions {
+  profileId?: string;
+}
+
 /** Live join across configured DevOps sources. Join and evidence live in the backend. */
-export function devopsTraceDelivery(issueKey: string, scope?: DevOpsRuntimeScope): Promise<DevOpsTrace> {
+export function devopsTraceDelivery(
+  anchor: DeliveryAnchor | string,
+  scope?: DevOpsRuntimeScope,
+  options?: DevOpsTraceOptions,
+): Promise<DevOpsTrace> {
+  const resolved: DeliveryAnchor = typeof anchor === "string" ? { kind: "issue", value: anchor } : anchor;
   const now = Date.now();
   const runtimeScope = scope?.kubeContext
     ? { kubeContext: scope.kubeContext, namespaces: scope.namespaces ?? [] }
     : undefined;
-  const cacheKey = `${issueKey}\u0000${runtimeScope?.kubeContext ?? ""}\u0000${runtimeScope?.namespaces.join("\u0001") ?? ""}`;
+  const profileId = options?.profileId ?? activeCacheProfileId;
+  const cacheKey = `${anchorCacheKey(resolved)}\u0000${runtimeScope?.kubeContext ?? ""}\u0000${runtimeScope?.namespaces.join("\u0001") ?? ""}\u0000${profileId}`;
   const hit = traceDeliveryCache.get(cacheKey);
   if (hit && now - hit.at < TRACE_TTL_MS) {
     return hit.value;
   }
-  const value = invokeCapability<DevOpsTrace>("devops.traceDelivery", { issueKey, ...runtimeScope });
+  const value = invokeCapability<DevOpsTrace>("devops.traceDelivery", tracePayload(resolved, scope));
   traceDeliveryCache.set(cacheKey, { at: now, value });
   return value;
 }
 
+/** Alias — same wire capability `devops.traceDelivery`. */
+export const resolveDelivery = devopsTraceDelivery;
+
+/** Provider-neutral search hits — anchors only; never invent provider facts in the UI. */
+export interface DevOpsSearchResult {
+  anchors: DeliveryAnchor[];
+  partial: boolean;
+  sourceErrors: { source: string; message: string }[];
+}
+
+export interface DevOpsSearchOptions {
+  profileId?: string;
+}
+
 /**
- * Trace a work item. Prefers the live backend join; when that returns no nodes,
- * falls back to the fixture capability so demos without credentials still answer.
+ * `devops.search` — local issue-key/SHA/PR/build suggestions via the capability
+ * seam, plus Jira/GitLab/Bitbucket/Jenkins confirmation on the active profile.
+ * Answers stay partial (list snapshots, not full history); React must not fetch
+ * providers itself.
  */
-export async function devopsTraceIssue(issueKey: string): Promise<DevOpsTrace> {
-  try {
-    const live = await devopsTraceDelivery(issueKey);
-    if (live.nodes.length > 0) return live;
-    const fixture = await invokeCapability<DevOpsTrace>("devops.traceIssue", { issueKey });
-    if (fixture.nodes.length > 0) {
-      return {
-        ...fixture,
-        partial: live.partial || live.sourceErrors.length > 0,
-        sourceErrors: live.sourceErrors,
-      };
-    }
-    return live;
-  } catch {
-    return invokeCapability<DevOpsTrace>("devops.traceIssue", { issueKey });
+export function devopsSearch(query: string, options?: DevOpsSearchOptions): Promise<DevOpsSearchResult> {
+  const payload: Record<string, unknown> = { query };
+  if (options?.profileId) {
+    payload.profileId = options.profileId;
   }
+  return invokeCapability<DevOpsSearchResult>("devops.search", payload);
+}
+
+/** Compact live Delivery row — matches Rust `DeliverySummary`. */
+export interface DevOpsDeliverySummary {
+  id: string;
+  anchor: DeliveryAnchor;
+  title: string;
+  workId?: string;
+  stage: string;
+  stageLabel: string;
+  updated?: string;
+  situations: DevOpsTraceSituation[];
+  verdict?: DevOpsChainVerdict;
+  partial: boolean;
+  sourceErrors: { source: string; message: string }[];
+}
+
+export interface DevOpsDeliveryList {
+  deliveries: DevOpsDeliverySummary[];
+  partial: boolean;
+  sourceErrors: { source: string; message: string }[];
+}
+
+export interface DevOpsListOptions {
+  profileId?: string;
+  /** Max rows (backend default 40, hard max 80). */
+  limit?: number;
+}
+
+function listPayload(options?: DevOpsListOptions): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  if (options?.profileId) {
+    payload.profileId = options.profileId;
+  }
+  if (options?.limit != null) {
+    payload.limit = options.limit;
+  }
+  return payload;
+}
+
+function listCacheKey(capability: string, options?: DevOpsListOptions): string {
+  const profileId = options?.profileId ?? activeCacheProfileId;
+  return `${capability}\u0000${profileId}\u0000${options?.limit ?? ""}`;
+}
+
+function cachedListInvoke(
+  capability: "devops.listDeliveries" | "devops.myWork",
+  options?: DevOpsListOptions,
+): Promise<DevOpsDeliveryList> {
+  const now = Date.now();
+  const cacheKey = listCacheKey(capability, options);
+  const hit = listDeliveriesCache.get(cacheKey);
+  if (hit && now - hit.at < LIST_TTL_MS) {
+    return hit.value;
+  }
+  const value = invokeCapability<DevOpsDeliveryList>(capability, listPayload(options));
+  listDeliveriesCache.set(cacheKey, { at: now, value });
+  return value;
+}
+
+/**
+ * `devops.listDeliveries` — bounded live Delivery summaries from active profile
+ * providers.
+ */
+export function devopsListDeliveries(options?: DevOpsListOptions): Promise<DevOpsDeliveryList> {
+  return cachedListInvoke("devops.listDeliveries", options);
+}
+
+/**
+ * `devops.myWork` — actionable / recent subset of the same live source.
+ */
+export function devopsMyWork(options?: DevOpsListOptions): Promise<DevOpsDeliveryList> {
+  return cachedListInvoke("devops.myWork", options);
+}
+
+/** One Jira issue link from `jira.getIssue`. */
+export interface JiraIssueLink {
+  relation: string;
+  issueKey: string;
+  summary?: string;
+}
+
+/** Bounded comment/activity row from `jira.getIssue`. */
+export interface JiraIssueActivity {
+  kind: string;
+  summary: string;
+  author?: string;
+  at?: string;
+}
+
+/** Selected-issue detail — summary/status/assignee on `issue.attributes`, plus links/activity. */
+export interface JiraIssueDetail {
+  issue: {
+    id: string;
+    kind: string;
+    source: string;
+    title: string;
+    url: string | null;
+    attributes: Record<string, unknown>;
+  };
+  links: JiraIssueLink[];
+  activity: JiraIssueActivity[];
+}
+
+/**
+ * `jira.getIssue` — live selected-issue detail through the active DevOps profile.
+ */
+export function jiraGetIssue(issueKey: string): Promise<JiraIssueDetail> {
+  return invokeCapability<JiraIssueDetail>("jira.getIssue", { issueKey });
 }

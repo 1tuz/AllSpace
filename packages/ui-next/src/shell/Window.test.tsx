@@ -188,6 +188,7 @@ import { defaultState, makeTab } from "../lib/tabs";
 import { defaultMark, getMark, setMark, MARKS_KEY } from "../lib/marks";
 import { contextFor, getContextsError, getContextsStatus, resetContexts } from "../lib/clusters";
 import { resetLock } from "./LockGate";
+import { __setVaultPasswordGateEnabledForTests } from "@srelens/core";
 import { mcpAutoStartPhase, resetMcpAutoStart } from "../lib/mcpAutoStart";
 import { openCluster } from "../lib/openCluster";
 
@@ -235,6 +236,7 @@ beforeEach(() => {
   pendingConfirms.mockReset().mockResolvedValue([]);
   respondToConfirm.mockReset().mockResolvedValue(undefined);
   bus.clear();
+  __setVaultPasswordGateEnabledForTests(true);
   resetLock();
   resetMcpAutoStart();
   zoomSpy.mockReset();

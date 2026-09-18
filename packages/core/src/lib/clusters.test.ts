@@ -13,6 +13,21 @@ describe("listContexts", () => {
     expect(outcome.contexts?.[0].name).toBe("kind-dev");
   });
 
+  it("forwards replaceDefaults so a contour can exclude process kubeconfig", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      contexts: [{ name: "dev-doffice", cluster: "dev", server: "https://komus" }],
+    });
+    await listContexts(
+      ["/Users/antony/Documents/projects/komus/kubeconfigs/dev.yaml"],
+      invoke,
+      { replaceDefaults: true },
+    );
+    expect(invoke).toHaveBeenCalledWith("k8s.listContexts", {
+      paths: ["/Users/antony/Documents/projects/komus/kubeconfigs/dev.yaml"],
+      replaceDefaults: true,
+    });
+  });
+
   it("passes through the context's declared namespace", async () => {
     const invoke = vi.fn().mockResolvedValue({
       contexts: [{ name: "team-a-ctx", cluster: "c", server: "https://x", namespace: "team-a" }],

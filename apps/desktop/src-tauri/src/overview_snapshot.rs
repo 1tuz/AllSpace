@@ -80,7 +80,9 @@ fn write_all(path: &Path, all: &BTreeMap<String, PersistedSnapshot>) -> Result<(
 /// Last persisted snapshot for `context`, if it still belongs to `cluster` —
 /// an entry whose identity differs (or predates identities) is a miss.
 fn load(path: &Path, context: &str, cluster: &str) -> Option<PersistedSnapshot> {
-    read_all(path).remove(context).filter(|entry| entry.cluster == cluster)
+    read_all(path)
+        .remove(context)
+        .filter(|entry| entry.cluster == cluster)
 }
 
 /// Persist a snapshot for `context` under `cluster`'s identity, evicting the
@@ -133,7 +135,10 @@ fn resolve_store_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// A context's stable cluster identity — its server URL from the live
 /// kubeconfig set (no connection made). `None` when the context no longer
 /// exists there.
-async fn resolve_cluster(cache: &srelens_kube::client_cache::ClientCache, context: &str) -> Option<String> {
+async fn resolve_cluster(
+    cache: &srelens_kube::client_cache::ClientCache,
+    context: &str,
+) -> Option<String> {
     let paths = cache.paths().await;
     srelens_kube::context_resolve::resolve_context(&paths, context).map(|c| c.server)
 }
@@ -222,8 +227,14 @@ mod tests {
         save(&tmp.file(), "kind-a", CLUSTER, snapshot(1000, 3)).unwrap();
         save(&tmp.file(), "kind-b", CLUSTER, snapshot(2000, 5)).unwrap();
 
-        assert_eq!(load(&tmp.file(), "kind-a", CLUSTER), Some(snapshot(1000, 3)));
-        assert_eq!(load(&tmp.file(), "kind-b", CLUSTER), Some(snapshot(2000, 5)));
+        assert_eq!(
+            load(&tmp.file(), "kind-a", CLUSTER),
+            Some(snapshot(1000, 3))
+        );
+        assert_eq!(
+            load(&tmp.file(), "kind-b", CLUSTER),
+            Some(snapshot(2000, 5))
+        );
     }
 
     #[test]
@@ -241,7 +252,10 @@ mod tests {
 
         // A save starts the cache over rather than failing on the bad file.
         save(&tmp.file(), "kind-a", CLUSTER, snapshot(1000, 3)).unwrap();
-        assert_eq!(load(&tmp.file(), "kind-a", CLUSTER), Some(snapshot(1000, 3)));
+        assert_eq!(
+            load(&tmp.file(), "kind-a", CLUSTER),
+            Some(snapshot(1000, 3))
+        );
     }
 
     #[test]
@@ -285,7 +299,10 @@ mod tests {
         save(&tmp.file(), "kind-a", CLUSTER, snapshot(1000, 3)).unwrap();
         save(&tmp.file(), "kind-a", CLUSTER, snapshot(2000, 4)).unwrap();
 
-        assert_eq!(load(&tmp.file(), "kind-a", CLUSTER), Some(snapshot(2000, 4)));
+        assert_eq!(
+            load(&tmp.file(), "kind-a", CLUSTER),
+            Some(snapshot(2000, 4))
+        );
     }
 
     #[test]
@@ -297,7 +314,10 @@ mod tests {
         clear(&tmp.file(), Some("kind-a")).unwrap();
 
         assert_eq!(load(&tmp.file(), "kind-a", CLUSTER), None);
-        assert_eq!(load(&tmp.file(), "kind-b", CLUSTER), Some(snapshot(2000, 5)));
+        assert_eq!(
+            load(&tmp.file(), "kind-b", CLUSTER),
+            Some(snapshot(2000, 5))
+        );
     }
 
     #[test]
@@ -323,7 +343,11 @@ mod tests {
         save(&tmp.file(), "kind-a", CLUSTER, snapshot(1000, 3)).unwrap();
 
         let mode = fs::metadata(tmp.file()).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "overview.json must be 0600, got {mode:o}");
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "overview.json must be 0600, got {mode:o}"
+        );
     }
 
     /// Concurrent writers (a second app instance, two commands in flight) must
@@ -341,7 +365,10 @@ mod tests {
             fs::read_to_string(&foreign).unwrap(),
             "other writer's half-finished payload"
         );
-        assert_eq!(load(&tmp.file(), "kind-a", CLUSTER), Some(snapshot(1000, 3)));
+        assert_eq!(
+            load(&tmp.file(), "kind-a", CLUSTER),
+            Some(snapshot(1000, 3))
+        );
     }
 
     #[test]

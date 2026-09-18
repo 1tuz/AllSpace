@@ -8,6 +8,9 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "tauri": "tauri",
+    "codesign:ensure": "../../scripts/macos/ensure-dev-codesign.sh",
+    "codesign:app": "../../scripts/macos/sign-dev-app.sh",
+    "install:macos": "../../scripts/macos/install-local-app.sh",
     "test": "vitest run --coverage",
     "test:watch": "vitest"
   },
@@ -33,6 +36,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "dockview-react": "^8.3.1",
     "lucide-react": "^1.22.0",
     "mobx": "^6.12.0",
     "mobx-react": "^7.6.0",
@@ -40,10 +44,12 @@
     "radix-ui": "^1.6.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
+    "react-resizable-panels": "^4.12.4",
     "reflect-metadata": "^0.2.2",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "tw-animate-css": "^1.4.0",
+    "uplot": "^1.6.32",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

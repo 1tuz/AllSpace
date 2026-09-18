@@ -17,7 +17,11 @@ pub async fn save_text_file<R: Runtime>(
     filename: String,
     content: String,
 ) -> Result<Option<String>, String> {
-    let picked = app.dialog().file().set_file_name(&filename).blocking_save_file();
+    let picked = app
+        .dialog()
+        .file()
+        .set_file_name(&filename)
+        .blocking_save_file();
     let Some(file) = picked else {
         return Ok(None);
     };
@@ -29,7 +33,11 @@ pub async fn save_text_file<R: Runtime>(
 /// Select one or more existing kubeconfig files and return filesystem paths.
 #[tauri::command]
 pub async fn pick_kubeconfig_files<R: Runtime>(app: AppHandle<R>) -> Result<Vec<String>, String> {
-    let picked = app.dialog().file().blocking_pick_files().unwrap_or_default();
+    let picked = app
+        .dialog()
+        .file()
+        .blocking_pick_files()
+        .unwrap_or_default();
     picked
         .into_iter()
         .map(|file| {
@@ -72,7 +80,13 @@ fn save_pasted_kubeconfig_to(
     let stem = name
         .unwrap_or_else(|| "pasted".to_string())
         .chars()
-        .map(|character| if character.is_ascii_alphanumeric() || character == '-' { character } else { '-' })
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' {
+                character
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .chars()
@@ -82,7 +96,10 @@ fn save_pasted_kubeconfig_to(
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_millis();
-    let file_name = format!("{}-{timestamp}.yaml", if stem.is_empty() { "pasted" } else { &stem });
+    let file_name = format!(
+        "{}-{timestamp}.yaml",
+        if stem.is_empty() { "pasted" } else { &stem }
+    );
     let path = directory.join(file_name);
     fs::write(&path, content).map_err(|error| error.to_string())?;
     Ok(path.to_string_lossy().into_owned())
@@ -119,15 +136,19 @@ current-context: ctx
     #[test]
     fn writes_a_sanitized_timestamped_yaml_and_creates_the_directory() {
         let dir = temp_dir("save");
-        let path = save_pasted_kubeconfig_to(
-            &dir,
-            VALID_KUBECONFIG,
-            Some("My Cluster (prod)!".into()),
-        )
-        .unwrap();
-        let file = std::path::Path::new(&path).file_name().unwrap().to_string_lossy().into_owned();
+        let path =
+            save_pasted_kubeconfig_to(&dir, VALID_KUBECONFIG, Some("My Cluster (prod)!".into()))
+                .unwrap();
+        let file = std::path::Path::new(&path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
         // Every non [-a-zA-Z0-9] character became '-', edges trimmed.
-        assert!(file.starts_with("My-Cluster--prod"), "unexpected name: {file}");
+        assert!(
+            file.starts_with("My-Cluster--prod"),
+            "unexpected name: {file}"
+        );
         assert!(file.ends_with(".yaml"), "unexpected name: {file}");
         assert_eq!(fs::read_to_string(&path).unwrap(), VALID_KUBECONFIG);
         let _ = fs::remove_dir_all(&dir);
@@ -140,8 +161,11 @@ current-context: ctx
         let scrubbed =
             save_pasted_kubeconfig_to(&dir, VALID_KUBECONFIG, Some("!!!".into())).unwrap();
         for path in [unnamed, scrubbed] {
-            let file =
-                std::path::Path::new(&path).file_name().unwrap().to_string_lossy().into_owned();
+            let file = std::path::Path::new(&path)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
             assert!(file.starts_with("pasted-"), "unexpected name: {file}");
         }
         let _ = fs::remove_dir_all(&dir);

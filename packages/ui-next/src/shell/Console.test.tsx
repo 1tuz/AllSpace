@@ -10,6 +10,7 @@ import { logsRoute } from "../screens/Logs";
 import * as tabsStore from "../lib/tabsStore";
 import { lockWorkspace, resetLock, __setKnownVaultMode } from "./LockGate";
 import type { ClusterContext } from "@srelens/core";
+import { __setVaultPasswordGateEnabledForTests } from "@srelens/core";
 
 const {
   useAgentRun,
@@ -146,6 +147,7 @@ beforeEach(() => {
   // The active cluster comes from the tabs store, so the workspace has to hold
   // it for `useActiveContext` to resolve.
   tabsStore.setState(defaultState([HARNESS_CTX]));
+  __setVaultPasswordGateEnabledForTests(true);
   resetLock();
   isTauri.mockReturnValue(true);
   isApplePlatform.mockReturnValue(true);

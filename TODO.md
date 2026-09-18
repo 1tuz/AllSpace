@@ -1,40 +1,52 @@
-# DevOps Workspace TODO
+# DevOps workspace TODO
 
-Fork relative to upstream `dev` at
-`01f2f56885e1a46182246bc47cc787e1245db2a9`.
+Direction: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#devops-workspace-shell-this-fork). Contours: [`docs/CONTOURS.md`](docs/CONTOURS.md).
 
-Canonical direction:
-[`DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md`](DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md).
+## Done
 
-## Stage 1 — architectural seam
+- [x] Delivery-first shell (`apps/desktop/src/workspace/`) — no cluster-first root nav
+- [x] Home, Deliveries, Delivery Trace, Connections, First-run, Kubernetes explorer
+- [x] Provider-backed AppFarm + Komus; live trace + contour smoke (VPN, see CONTOURS)
+- [x] `devops.traceDelivery`, evidence/confidence, TTL cache, profile switch clears cache
+- [x] Provider crates (Jira, GitLab, Bitbucket, Jenkins) + vault credentials
+- [x] Command palette (⌘K); Delivery → Explore → runtime handoff
+- [x] Removed disconnected Dockview Layout prototype; it had no real selected-delivery source
+- [x] Rail materials, reduced-transparency, optional liquid glass
 
-- [x] Standalone workspace shell (no global cluster selection / resource-kind root).
-- [x] Home, Deliveries, Delivery Trace, Connections, First-run on fixtures.
-- [x] Fixture AppFarm journey (Jira → GitLab MR → pipeline → artifact → workload).
-- [x] Fixture Komus journey (Bitbucket → Jenkins → artifact → workload; no Jira).
-- [x] Kubernetes Explorer entry with local cluster selector only.
-- [x] Tests: Home without kube context; fixture traces; partial vs empty; exact vs heuristic.
-- [x] Docs rewritten for delivery-first IA (PRODUCT / ARCHITECTURE / PLAN / RESEARCH / HANDOFF).
-- [x] Contour presets AppFarm/Komus (public URLs + sibling .env paths); TLS insecure for private CA.
-- [x] Live AppFarm smoke via `scripts/devops-contour-smoke.py` (VPN).
+## Next
 
-## Platform retained (done earlier)
+### Vitrina
 
-- [x] Domain model, correlation fixtures, provider crates (partial).
-- [x] Desktop `VaultCredentialStore` + profile settings entry.
-- [x] Legacy Mission Control nested screen **retired** (Settings → DevOps kept).
+- [x] Removed the disconnected Layout prototype from navigation and routing
+- [x] Drop developer `ScreenHeader` descriptions on shipped screens
+- [x] Default route stays My Work
 
-## Stage 2–4 (this fork)
+### Primary UX
 
-- [x] Command palette foundation across deliveries / entities (workspace ⌘K).
-- [x] Backend `devops.traceDelivery`; join out of React core wrapper.
-- [x] Register Bitbucket / Jenkins read capabilities.
-- [x] Contour `projectFilters` (GitLab / Bitbucket CORP / Jenkins jobs) + CLI env.
-- [x] Artifact → workload join rules (digest Exact / tag Strong / short-sha Heuristic).
-- [x] TTL cache for delivery trace; clear on profile select/upsert.
-- [x] Delivery Trace → Explore opens classic IDE focused on runtime workload.
-- [x] Workspace rail materials + `prefers-reduced-transparency`.
-- [x] Smoke script probes optional `GITLAB_PROJECTS` / `BITBUCKET_PROJECTS`.
-- [x] Live kube fan-out inside `devops.traceDelivery` (list deployments by image).
-- [x] In-workspace resource browser / logs / shell (today: classic IDE handoff).
-- [x] Native Tauri vibrancy beyond CSS backdrop (optional polish).
+- [x] Home summary strip (attention / review / building / delivered)
+- [x] Deliveries master-detail (live list + selected trace preview)
+- [x] Trace = joined view; providers as nodes + evidence, not orphan panels
+- [x] Single header per region (the duplicate panel frame was removed with Layout)
+- [x] Situation: label + colour on every row
+
+### Content
+
+- [x] Partial trace when contour omits a provider (e.g. Komus without Jira)
+- [x] Live errors are explicit, never rendered as empty panels
+- [x] Removed the unwired Code panel and placeholder copy
+
+### Polish
+
+- [x] Glass on chrome only (sidebar/titlebar), not dense content
+- [x] Row density + contrast like prototype
+- [ ] Reduced transparency / increased contrast manual check
+- [ ] Screenshot pass: Home, Deliveries, trace, Connections, K8s, ⌘K
+
+### Live-only data
+
+- [x] Removed Demo mode, fixture routing, sample-data chrome, and demo first-run
+- [x] My Work and Deliveries query provider capabilities only
+- [x] Empty, partial, and failed provider results remain distinct UI states
+- [x] Removed disconnected placeholder panels and their fixture-only tests
+- [x] Contour visible on every screen (persistent contour switcher in rail)
+- [x] First-run / Connections: optional providers per contour

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { watchResource, type WatchHandle, type WatchStatus } from "@srelens/core";
+import { subscribeSharedKube, type WatchStatus } from "@srelens/core";
+import { usePortalShowing } from "@srelens/ui-kit";
 import { rowKey, type KindDescriptor, type ListRow, type RowKey } from "./kinds/types";
 
 export type ResourceListStatus = "loading" | "ready" | "empty" | "error";
@@ -82,11 +83,15 @@ interface ListState {
 }
 
 /**
- * The data engine for a resource-list screen: watch vs poll, a view-keyed row
- * cache, and cancellation, with no knowledge of columns or layout. Follows
- * the generation-counter pattern from useResource — a result that arrives
- * after the view changed or the component unmounted is dropped by comparing
- * a captured generation against the current one.
+ * The data engine for a resource-list screen: shared kube watch vs poll, a
+ * view-keyed row cache, and cancellation, with no knowledge of columns or
+ * layout. Follows the generation-counter pattern from useResource — a result
+ * that arrives after the view changed or the component unmounted is dropped by
+ * comparing a captured generation against the current one.
+ *
+ * Watches go through `subscribeSharedKube` (same owner as Classic /
+ * Explorer ResourceBrowser). Visibility comes from `usePortalShowing` —
+ * a hidden `TabSurface` stops the watch/poll; unmount does too.
  *
  * What it returns is GATED on the view the held state was fetched for
  * matching the one passed in THIS render — `useObject`'s gate, in
@@ -124,6 +129,9 @@ export function useResourceList<Row extends ListRow>(
   const gen = useRef(0);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
+  // TabSurface keeps hidden tabs mounted; without this, a parked list would
+  // keep its shared-owner subscription (and poll/enrich timers) alive.
+  const active = usePortalShowing();
 
   const [state, setState] = useState<ListState>(() => {
     const cached = cacheGet(key);
@@ -138,10 +146,18 @@ export function useResourceList<Row extends ListRow>(
   useEffect(() => {
     const mine = ++gen.current;
     const cached = cacheGet(key);
-    setState({ rows: cached ?? [], error: undefined, loading: cached === undefined, watch: "live", forKey: key });
+    setState({
+      rows: cached ?? [],
+      error: undefined,
+      // Hidden / parked: keep cached rows, never spin forever waiting for a
+      // watch that will not start until the tab is showing again.
+      loading: active && cached === undefined,
+      watch: "live",
+      forKey: key,
+    });
     setMetrics(undefined);
 
-    if (!descriptor) {
+    if (!descriptor || !active) {
       return;
     }
 
@@ -166,50 +182,32 @@ export function useResourceList<Row extends ListRow>(
     }
 
     if (descriptor.source === "watch") {
-      let handle: WatchHandle | undefined;
-      let stopped = false;
-
-      watchResource(
+      const handle = subscribeSharedKube({
         context,
         namespace,
         kind,
-        (rows) => {
-          if (gen.current !== mine) return;
-          cacheSet(key, rows);
-          setState((s) => ({ ...s, rows, loading: false }));
+        kubeconfigFiles: files,
+        visible: true,
+        listener: {
+          onRows: (rows) => {
+            if (gen.current !== mine) return;
+            cacheSet(key, rows);
+            setState((s) => ({ ...s, rows, loading: false }));
+          },
+          onStatus: (status) => {
+            if (gen.current !== mine) return;
+            setState((s) => ({ ...s, watch: status }));
+          },
+          onError: (error) => {
+            if (gen.current !== mine) return;
+            setState((s) => ({ ...s, error, loading: false }));
+          },
         },
-        (status) => {
-          if (gen.current !== mine) return;
-          setState((s) => ({ ...s, watch: status }));
-        },
-        (error) => {
-          if (gen.current !== mine) return;
-          setState((s) => ({ ...s, error, loading: false }));
-        },
-        files,
-      ).then(
-        (h) => {
-          if (stopped || gen.current !== mine) {
-            // A handle that resolves after cleanup is stopped immediately
-            // rather than leaked.
-            h.stop();
-            return;
-          }
-          handle = h;
-        },
-        (e: unknown) => {
-          // A failed watch start (e.g. the backend's invokeCommand rejects)
-          // must surface as `error`, not leave the hook on `loading`
-          // forever — errors are returned, never thrown.
-          if (gen.current !== mine) return;
-          setState((s) => ({ ...s, error: e instanceof Error ? e.message : String(e), loading: false }));
-        },
-      );
+      });
 
       return () => {
         if (gen.current === mine) gen.current++;
-        stopped = true;
-        handle?.stop();
+        handle.unsubscribe();
         if (enrichInterval) clearInterval(enrichInterval);
       };
     }
@@ -244,7 +242,7 @@ export function useResourceList<Row extends ListRow>(
       if (enrichInterval) clearInterval(enrichInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [context, namespace, kind, descriptor, tick, files.join(",")]);
+  }, [context, namespace, kind, descriptor, tick, files.join(","), active]);
 
   // The gate itself. `reload` is handed back either way: it is stable, and a
   // caller must be able to retry the view it is asking about right now. The

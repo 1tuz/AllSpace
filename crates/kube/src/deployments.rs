@@ -88,7 +88,7 @@ fn deployment_images(deployment: &Deployment) -> Vec<String> {
 pub(crate) fn deployment_image_match(deployment: &Deployment, images: &[String]) -> Option<DeploymentImageMatch> {
     let matched: Vec<String> = deployment_images(deployment)
         .into_iter()
-        .filter(|image| images.iter().any(|candidate| candidate == image))
+        .filter(|image| images.iter().any(|candidate| image_ref_matches(image, candidate)))
         .collect();
     if matched.is_empty() {
         return None;
@@ -100,6 +100,26 @@ pub(crate) fn deployment_image_match(deployment: &Deployment, images: &[String])
         ready: summary.ready,
         images: matched,
     })
+}
+
+/// Exact OCI ref, or bare tag / digest matched as a suffix of a full image.
+fn image_ref_matches(image: &str, candidate: &str) -> bool {
+    if candidate.is_empty() {
+        return false;
+    }
+    if image == candidate {
+        return true;
+    }
+    // Bare tag: `65-dev` matches `registry/app:65-dev`.
+    if !candidate.contains('/') && !candidate.contains('@') && !candidate.contains(':') {
+        return image.ends_with(&format!(":{candidate}"))
+            || image.rsplit_once(':').is_some_and(|(_, tag)| tag == candidate);
+    }
+    // Digest fragment: `sha256:abc` matches `registry/app@sha256:abc`.
+    if candidate.starts_with("sha256:") {
+        return image.ends_with(candidate) || image.contains(&format!("@{candidate}"));
+    }
+    false
 }
 
 /// `k8s.listDeploymentsByImage` — find live Deployments whose pod templates
@@ -350,6 +370,43 @@ mod tests {
         let result = deployment_image_match(&deployment, &["registry.example/migrate@sha256:abc".into()]);
         assert_eq!(result.as_ref().map(|match_| match_.name.as_str()), Some("payments-api"));
         assert_eq!(result.map(|match_| match_.images), Some(vec!["registry.example/migrate@sha256:abc".into()]));
+    }
+
+    #[test]
+    fn finds_deployment_by_bare_image_tag() {
+        let deployment = Deployment {
+            metadata: kube::core::ObjectMeta {
+                name: Some("expressbot-dev".into()),
+                namespace: Some("expressbot-dev".into()),
+                ..Default::default()
+            },
+            spec: Some(DeploymentSpec {
+                template: PodTemplateSpec {
+                    spec: Some(PodSpec {
+                        containers: vec![Container {
+                            image: Some("p-doffice-docker.example/komusoffice/expressbot:65-dev".into()),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let result = deployment_image_match(&deployment, &["65-dev".into()]);
+        assert_eq!(
+            result.as_ref().map(|match_| match_.name.as_str()),
+            Some("expressbot-dev")
+        );
+        assert_eq!(
+            result.map(|match_| match_.images),
+            Some(vec![
+                "p-doffice-docker.example/komusoffice/expressbot:65-dev".into()
+            ])
+        );
     }
 
     #[tokio::test]

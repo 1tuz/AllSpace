@@ -194,40 +194,50 @@ export function Dock({
       </div>
       <div className="fl-dock__body">
         {/* Every session stays mounted; only the active one is shown. Unmounting
-            an inactive tab would tear down its shell/log stream and lose the
-            terminal scrollback, so we hide rather than remove. */}
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            className="fl-dock__pane"
-            style={{ display: s.id === activeId ? "block" : "none" }}
-          >
-            {s.kind === "helm" ? (
-              <HelmOpPane session={s} />
-            ) : s.kind === "shell" ? (
-              <LocalTerminal context={s.context} kubeconfigFiles={s.kubeconfigFiles ?? []} />
-            ) : s.kind === "terminal" && s.pod ? (
-              <PodTerminal
-                context={s.context}
-                namespace={s.namespace}
-                pod={s.pod}
-                container={s.container}
-                command={s.execCommand}
-              />
-            ) : (
-              <LogsView
-                context={s.context}
-                namespace={s.namespace}
-                initialContainer={s.container}
-                source={
-                  (s.pod
-                    ? { type: "pod", pod: s.pod }
-                    : { type: "workload", kind: s.workload!.kind, name: s.workload!.name }) as LogsSource
-                }
-              />
-            )}
-          </div>
-        ))}
+            an inactive tab would dispose xterm and lose scrollback, so we hide
+            rather than remove. Live work still stops when inactive via `active`
+            (logs live-tail, terminal/shell PTY) — hidden-consumer rule. */}
+        {sessions.map((s) => {
+          const paneActive = s.id === activeId;
+          return (
+            <div
+              key={s.id}
+              className="fl-dock__pane"
+              style={{ display: paneActive ? "block" : "none" }}
+            >
+              {s.kind === "helm" ? (
+                <HelmOpPane session={s} />
+              ) : s.kind === "shell" ? (
+                <LocalTerminal
+                  context={s.context}
+                  kubeconfigFiles={s.kubeconfigFiles ?? []}
+                  active={paneActive}
+                />
+              ) : s.kind === "terminal" && s.pod ? (
+                <PodTerminal
+                  context={s.context}
+                  namespace={s.namespace}
+                  pod={s.pod}
+                  container={s.container}
+                  command={s.execCommand}
+                  active={paneActive}
+                />
+              ) : (
+                <LogsView
+                  context={s.context}
+                  namespace={s.namespace}
+                  active={paneActive}
+                  initialContainer={s.container}
+                  source={
+                    (s.pod
+                      ? { type: "pod", pod: s.pod }
+                      : { type: "workload", kind: s.workload!.kind, name: s.workload!.name }) as LogsSource
+                  }
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

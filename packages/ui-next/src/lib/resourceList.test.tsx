@@ -1,5 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, renderHook, act, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { PortalScopeProvider } from "@srelens/ui-kit";
+
+type TestWatchRow = { name: string; namespace?: string };
+type TestWatchStatus = "live" | "reconnecting";
 
 // `vi.hoisted` because `vi.mock` is hoisted above every declaration in the
 // file — a plain `const watchResource = vi.fn(...)` below it would be read
@@ -7,20 +12,23 @@ import { render, renderHook, act, waitFor } from "@testing-library/react";
 // same pattern elsewhere in this package).
 const { stop, watchResource, mockState } = vi.hoisted(() => {
   const mockState: {
-    emitRows: ((rows: unknown[]) => void) | null;
-    emitStatus: ((s: string) => void) | null;
-  } = { emitRows: null, emitStatus: null };
+    emitRows: ((rows: TestWatchRow[]) => void) | null;
+    emitStatus: ((s: TestWatchStatus) => void) | null;
+    emitError: ((e: string) => void) | null;
+  } = { emitRows: null, emitStatus: null, emitError: null };
   const stop = vi.fn();
   const watchResource = vi.fn(
     async (
       _context: string,
       _namespace: string,
       _kind: string,
-      onRows: (rows: unknown[]) => void,
-      onStatus: (s: string) => void,
+      onRows: (rows: TestWatchRow[]) => void,
+      onStatus?: (s: TestWatchStatus) => void,
+      onError?: (e: string) => void,
     ) => {
       mockState.emitRows = onRows;
-      mockState.emitStatus = onStatus;
+      mockState.emitStatus = onStatus ?? null;
+      mockState.emitError = onError ?? null;
       return { stop };
     },
   );
@@ -31,6 +39,11 @@ vi.mock("@srelens/core", async (orig) => ({
   watchResource,
 }));
 
+import {
+  __resetSharedKubeSubscriptionsForTests,
+  __setSharedKubeWatchStarterForTests,
+  __sharedKubeLiveWatchCountForTests,
+} from "@srelens/core";
 import { useResourceList, resetListCache } from "./resourceList";
 import { rowKey, type KindDescriptor, type ListRow } from "./kinds/types";
 
@@ -41,12 +54,36 @@ import { rowKey, type KindDescriptor, type ListRow } from "./kinds/types";
 // not `string`) without that mismatch.
 const watched: KindDescriptor<ListRow> = { k8sKind: "Pod", columns: [], source: "watch", scope: "namespaced", actions: {} };
 
+function Hidden({ children }: { children: ReactNode }) {
+  return (
+    <PortalScopeProvider scope={{ container: undefined, visible: false, hold: () => () => {} }}>
+      {children}
+    </PortalScopeProvider>
+  );
+}
+
+function Visible({ children }: { children: ReactNode }) {
+  return (
+    <PortalScopeProvider scope={{ container: undefined, visible: true, hold: () => () => {} }}>
+      {children}
+    </PortalScopeProvider>
+  );
+}
+
 describe("useResourceList", () => {
   beforeEach(() => {
     resetListCache();
+    __resetSharedKubeSubscriptionsForTests();
+    // subscribeSharedKube owns the starter; barrel mock alone does not reach it.
+    __setSharedKubeWatchStarterForTests(watchResource);
     vi.clearAllMocks();
     mockState.emitRows = null;
     mockState.emitStatus = null;
+    mockState.emitError = null;
+  });
+
+  afterEach(() => {
+    __resetSharedKubeSubscriptionsForTests();
   });
 
   it("starts on loading and settles on the first snapshot", async () => {
@@ -198,7 +235,109 @@ describe("useResourceList", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(result.current.error).toBeUndefined();
   });
+
+  it("dedupes two mounts of the same key onto one backend watch", async () => {
+    const a = renderHook(() => useResourceList("prod", "pods", watched, "default", []));
+    const b = renderHook(() => useResourceList("prod", "pods", watched, "default", []));
+    await waitFor(() => expect(watchResource).toHaveBeenCalledTimes(1));
+    expect(__sharedKubeLiveWatchCountForTests()).toBe(1);
+
+    await waitFor(() => expect(mockState.emitRows).not.toBeNull());
+    act(() => mockState.emitRows!([{ name: "shared" }]));
+    expect(a.result.current.rows).toHaveLength(1);
+    expect(b.result.current.rows).toHaveLength(1);
+
+    a.unmount();
+    expect(stop).not.toHaveBeenCalled();
+    b.unmount();
+    expect(stop).toHaveBeenCalled();
+    expect(__sharedKubeLiveWatchCountForTests()).toBe(0);
+  });
+
+  it("does not start a watch while the tab surface is hidden", async () => {
+    renderHook(() => useResourceList("prod", "pods", watched, "default", []), {
+      wrapper: Hidden,
+    });
+    await Promise.resolve();
+    expect(watchResource).not.toHaveBeenCalled();
+    expect(__sharedKubeLiveWatchCountForTests()).toBe(0);
+  });
+
+  it("stops the shared watch when the tab surface hides", async () => {
+    let visible = true;
+    function Gate({ children }: { children: ReactNode }) {
+      return (
+        <PortalScopeProvider scope={{ container: undefined, visible, hold: () => () => {} }}>
+          {children}
+        </PortalScopeProvider>
+      );
+    }
+
+    const { rerender, unmount } = renderHook(() => useResourceList("prod", "pods", watched, "default", []), {
+      wrapper: Gate,
+    });
+    await waitFor(() => expect(watchResource).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockState.emitRows).not.toBeNull());
+    act(() => mockState.emitRows!([{ name: "a" }]));
+
+    visible = false;
+    rerender();
+    await waitFor(() => expect(stop).toHaveBeenCalled());
+    expect(__sharedKubeLiveWatchCountForTests()).toBe(0);
+
+    unmount();
+  });
+
+  it("stops polling while the tab surface is hidden", async () => {
+    vi.useFakeTimers();
+    const load = vi.fn().mockResolvedValue({ rows: [{ name: "a" }] });
+    const polled: KindDescriptor<ListRow> = { ...watched, source: "poll", load };
+
+    let visible = true;
+    function Gate({ children }: { children: ReactNode }) {
+      return (
+        <PortalScopeProvider scope={{ container: undefined, visible, hold: () => () => {} }}>
+          {children}
+        </PortalScopeProvider>
+      );
+    }
+
+    const { result, rerender, unmount } = renderHook(
+      () => useResourceList("prod", "leases", polled, "default", []),
+      { wrapper: Gate },
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.rows).toHaveLength(1);
+    expect(load).toHaveBeenCalledTimes(1);
+
+    visible = false;
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const afterHide = load.mock.calls.length;
+    await act(async () => {
+      vi.advanceTimersByTime(POLL_MS_FOR_TEST);
+    });
+    expect(load.mock.calls.length).toBe(afterHide);
+
+    visible = true;
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(load.mock.calls.length).toBeGreaterThan(afterHide);
+
+    unmount();
+    vi.useRealTimers();
+  });
 });
+
+/** Poll interval from resourceList — kept local so the hide test does not
+ *  import a non-exported constant. */
+const POLL_MS_FOR_TEST = 5000;
 
 /**
  * The render-time key gate — `useObject`'s, for the same reason and in the
@@ -219,9 +358,16 @@ describe("useResourceList", () => {
 describe("useResourceList — the render the view changes", () => {
   beforeEach(() => {
     resetListCache();
+    __resetSharedKubeSubscriptionsForTests();
+    __setSharedKubeWatchStarterForTests(watchResource);
     vi.clearAllMocks();
     mockState.emitRows = null;
     mockState.emitStatus = null;
+    mockState.emitError = null;
+  });
+
+  afterEach(() => {
+    __resetSharedKubeSubscriptionsForTests();
   });
 
   it("reports loading, never the previous view's rows, on that render", async () => {
@@ -232,13 +378,21 @@ describe("useResourceList — the render the view changes", () => {
       return null;
     }
 
-    const { rerender } = render(<Probe ns="default" />);
+    const { rerender } = render(
+      <Visible>
+        <Probe ns="default" />
+      </Visible>,
+    );
     await waitFor(() => expect(mockState.emitRows).not.toBeNull());
     act(() => mockState.emitRows!([{ name: "a" }]));
     await waitFor(() => expect(seen.at(-1)?.status).toBe("ready"));
     seen.length = 0;
 
-    rerender(<Probe ns="kube-system" />);
+    rerender(
+      <Visible>
+        <Probe ns="kube-system" />
+      </Visible>,
+    );
 
     // The FIRST render at the new view is the frame a browser would paint. It
     // must not put `default`'s pods under a table now headed kube-system —
@@ -263,13 +417,21 @@ describe("useResourceList — the render the view changes", () => {
       return null;
     }
 
-    const { rerender } = render(<Probe ns="shop" />);
+    const { rerender } = render(
+      <Visible>
+        <Probe ns="shop" />
+      </Visible>,
+    );
     await waitFor(() => expect(mockState.emitRows).not.toBeNull());
     act(() => mockState.emitRows!([{ name: "api-0", namespace: "shop" }]));
     await waitFor(() => expect(seen.at(-1)?.rows[0]).toMatchObject({ cpu: 10 }));
     seen.length = 0;
 
-    rerender(<Probe ns="billing" />);
+    rerender(
+      <Visible>
+        <Probe ns="billing" />
+      </Visible>,
+    );
     expect(seen[0]).toEqual({ asked: "billing", rows: [] });
   });
 
@@ -288,7 +450,11 @@ describe("useResourceList — the render the view changes", () => {
       return null;
     }
 
-    render(<Probe />);
+    render(
+      <Visible>
+        <Probe />
+      </Visible>,
+    );
     await waitFor(() => expect(seen.at(-1)).toBe("ready"));
     seen.length = 0;
 

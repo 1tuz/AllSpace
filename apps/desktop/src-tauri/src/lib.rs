@@ -1,5 +1,4 @@
 mod app_log;
-mod deep_link;
 mod appimage;
 mod assistant;
 mod assistant_history;
@@ -9,15 +8,17 @@ mod bridge;
 pub mod capabilities;
 mod cluster_oidc;
 mod cluster_oidc_cmd;
-mod devops_credentials;
+mod deep_link;
 pub mod devops_cli;
-mod llm_agent;
-mod llm_config;
+mod devops_credentials;
 mod exec;
 mod external;
 mod files;
 mod forward;
 mod helm;
+mod liquid_glass;
+mod llm_agent;
+mod llm_config;
 mod logs;
 mod mcp;
 mod mcp_confirm;
@@ -26,11 +27,11 @@ mod overview_snapshot;
 mod settings;
 mod sink;
 mod terminal;
+mod toolbox;
+mod updater;
 pub mod vault;
 mod vault_biometric;
 mod vault_password;
-mod toolbox;
-mod updater;
 mod watch;
 
 use app_log::{app_log_path, read_app_log, reveal_app_log};
@@ -42,10 +43,10 @@ use forward::{list_forwards, start_port_forward, stop_port_forward};
 use helm::{helm_op_close, start_helm_op};
 use logs::{start_log_stream, stop_log_stream};
 use mcp::{
-    install_srelens_cli, mcp_audit_tail, mcp_confirm_pending, mcp_confirm_respond,
-    mcp_http_start, mcp_http_status, mcp_http_stop, mcp_prompt_issues, mcp_token_get,
-    mcp_token_revoke, mcp_token_rotate, mcp_token_storage, srelens_cli_status, McpAuditPath,
-    McpHttpManager, McpPromptsDir,
+    install_srelens_cli, mcp_audit_tail, mcp_confirm_pending, mcp_confirm_respond, mcp_http_start,
+    mcp_http_status, mcp_http_stop, mcp_prompt_issues, mcp_token_get, mcp_token_revoke,
+    mcp_token_rotate, mcp_token_storage, srelens_cli_status, McpAuditPath, McpHttpManager,
+    McpPromptsDir,
 };
 use settings::{get_request_timeout, set_request_timeout};
 use srelens_kube::client_cache::ClientCache;
@@ -95,25 +96,6 @@ fn size_main_window(app: &tauri::App) {
     let height = PREF_H.min(avail_h).max(480.0);
     let _ = window.set_size(LogicalSize::new(width, height));
     let _ = window.center();
-}
-
-/// Use AppKit's material behind the WebView on macOS. The frontend remains
-/// responsible for opaque content and reduced-transparency fallback; this is
-/// deliberately best-effort so a platform effect can never block startup.
-#[cfg(target_os = "macos")]
-fn apply_macos_vibrancy(app: &tauri::App) {
-    use tauri::window::{Effect, EffectState, EffectsBuilder};
-
-    if let Some(window) = app.get_webview_window("main") {
-        if let Err(error) = window.set_effects(
-            EffectsBuilder::new()
-                .effect(Effect::Sidebar)
-                .state(EffectState::FollowsWindowActiveState)
-                .build(),
-        ) {
-            log::warn!("could not apply macOS window vibrancy: {error}");
-        }
-    }
 }
 
 /// Menu id for the custom "Close Tab" item. macOS routes Cmd+W to this instead
@@ -218,7 +200,6 @@ async fn watch_kubeconfig_files(app_handle: tauri::AppHandle, cache: std::sync::
         paths
     }
 
-
     let mut last_modified: HashMap<PathBuf, Option<SystemTime>> = HashMap::new();
 
     // Initialize the map with current files
@@ -293,11 +274,10 @@ pub fn run() {
     // arguments to the deep-link plugin first, so an `srelens://` link on
     // Windows/Linux reaches the running app rather than starting a rival one.
     #[cfg(desktop)]
-    let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
-        |app, _argv, _cwd| {
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             deep_link::focus_main_window(app);
-        },
-    ));
+        }));
     #[cfg(not(desktop))]
     let builder = tauri::Builder::default();
 
@@ -355,9 +335,13 @@ pub fn run() {
             }
             #[cfg(desktop)]
             deep_link::register_deep_links(app);
+            // Liquid glass / vibrancy: default off until the frontend calls
+            // `set_liquid_glass` after applyTheme (preference-driven).
+            app.manage(std::sync::Mutex::new(
+                liquid_glass::LiquidGlassState::default(),
+            ));
             #[cfg(target_os = "macos")]
             {
-                apply_macos_vibrancy(app);
                 install_macos_menu(app)?;
             }
 
@@ -423,38 +407,40 @@ pub fn run() {
             // one is usable from the other.
             let credential_store: std::sync::Arc<dyn srelens_registry::CredentialStore> =
                 match app.path().app_config_dir().map(|d| d.join("mcp")) {
-                Ok(dir) => {
-                    if let Err(e) = std::fs::create_dir_all(&dir) {
-                        log::warn!("could not create MCP config dir {}: {e}", dir.display());
-                    }
-                    let vault = std::sync::Arc::new(vault::Vault::open(&dir));
-                    let token_store: std::sync::Arc<dyn srelens_mcp::auth::TokenStore> =
-                        std::sync::Arc::new(vault::VaultTokenStore(vault.clone()));
-                    app.manage(token_store);
-                    app.manage(vault.clone());
-                    app.manage(McpAuditPath(dir.join("audit.jsonl")));
+                    Ok(dir) => {
+                        if let Err(e) = std::fs::create_dir_all(&dir) {
+                            log::warn!("could not create MCP config dir {}: {e}", dir.display());
+                        }
+                        let vault = std::sync::Arc::new(vault::Vault::open(&dir));
+                        let token_store: std::sync::Arc<dyn srelens_mcp::auth::TokenStore> =
+                            std::sync::Arc::new(vault::VaultTokenStore(vault.clone()));
+                        app.manage(token_store);
+                        app.manage(vault.clone());
+                        app.manage(McpAuditPath(dir.join("audit.jsonl")));
 
-                    let prompts_dir = dir.join("prompts");
-                    if let Err(e) = std::fs::create_dir_all(&prompts_dir) {
-                        log::warn!(
-                            "could not create MCP prompts dir {}: {e}",
-                            prompts_dir.display()
-                        );
+                        let prompts_dir = dir.join("prompts");
+                        if let Err(e) = std::fs::create_dir_all(&prompts_dir) {
+                            log::warn!(
+                                "could not create MCP prompts dir {}: {e}",
+                                prompts_dir.display()
+                            );
+                        }
+                        app.manage(McpPromptsDir(prompts_dir));
+                        std::sync::Arc::new(vault::VaultCredentialStore::new(vault))
                     }
-                    app.manage(McpPromptsDir(prompts_dir));
-                    std::sync::Arc::new(vault::VaultCredentialStore::new(vault))
-                }
-                Err(e) => {
-                    log::warn!("MCP config dir unavailable: {e}");
-                    std::sync::Arc::new(srelens_registry::SessionCredentials::new())
-                }
-            };
-            app.manage(AppRegistry(capabilities::build_registry_with_paths_and_settings(
-                registry_cache.clone(),
-                capabilities::default_kubeconfig_paths(),
-                capabilities::default_settings_path(),
-                credential_store,
-            )));
+                    Err(e) => {
+                        log::warn!("MCP config dir unavailable: {e}");
+                        std::sync::Arc::new(srelens_registry::SessionCredentials::new())
+                    }
+                };
+            app.manage(AppRegistry(
+                capabilities::build_registry_with_paths_and_settings(
+                    registry_cache.clone(),
+                    capabilities::default_kubeconfig_paths(),
+                    capabilities::default_settings_path(),
+                    credential_store,
+                ),
+            ));
             app.manage(std::sync::Arc::new(mcp_confirm::Pending::default()));
 
             Ok(())
@@ -520,6 +506,8 @@ pub fn run() {
             update_install,
             set_request_timeout,
             get_request_timeout,
+            liquid_glass::set_liquid_glass,
+            liquid_glass::liquid_glass_status,
             mcp_http_start,
             mcp_http_stop,
             mcp_http_status,

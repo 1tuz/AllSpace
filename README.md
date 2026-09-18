@@ -6,10 +6,9 @@
 
 <p align="center">
   <strong>Fork note:</strong> this tree is evolving into a delivery-first DevOps
-  workspace (work → change → build → artifact → deploy → runtime). Kubernetes
-  stays as a secondary explorer over the retained SRE Lens platform.
-  See <code>DEVOPS_WORKSPACE_REDESIGN_INSTRUCTIONS.md</code> and
-  <code>docs/devops-cockpit/</code>.
+  product around My Work and master/detail Deliveries. Kubernetes remains both
+  contextual runtime depth and a standalone explorer over the retained SRE Lens
+  platform. The current desktop shell is still a prototype.
 </p>
 
 <p align="center">

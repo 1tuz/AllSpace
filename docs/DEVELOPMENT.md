@@ -33,17 +33,110 @@ The first `pnpm dev` compiles the full Rust dependency tree and takes a few minu
 | `cargo llvm-cov --workspace --summary-only` | Rust tests with a coverage report |
 | `pnpm build` | Production frontend build (`vite build`) |
 | `pnpm tauri build` | Packaged, installable desktop binaries |
+| `scripts/macos/install-local-app.sh` | Install release/debug `.app` into `/Applications`, sign it, drop the build-tree copy so Spotlight does not show a duplicate |
 | `pnpm tauri icon apps/desktop/src-tauri/icons/icon.svg` | Regenerate the full app icon set from the source SVG |
 | `UPDATE_CATALOG=1 cargo test -p srelens-registry` | Regenerate the committed capability catalog after adding a capability |
 | `UPDATE_CATALOG=1 cargo test -p srelens-plugin-host --test schema` | Regenerate the committed extension manifest schema after changing a manifest field |
 
 Live-cluster suites are `#[ignore]`d and need an explicit run — see [Testing standards](#testing-standards).
 
+### Local macOS install (avoid Spotlight duplicates)
+
+`pnpm tauri build` leaves a full bundle at
+`target/release/bundle/macos/srelens.app` (and a `.dmg` beside it). That path
+has the **same** `CFBundleIdentifier` (`app.srelens.desktop`) as
+`/Applications/srelens.app`, so Launchpad / Spotlight list **two** identical
+"srelens" entries until the build-tree copy is gone or unindexed.
+
+After a local build you want to click from the Dock / Spotlight:
+
+```sh
+pnpm tauri build
+scripts/macos/install-local-app.sh
+# optional: open -a srelens
+```
+
+The script:
+
+1. Copies the release (or debug) `.app` into `/Applications/srelens.app`
+2. Signs with `srelens Dev Codesign` (`scripts/macos/sign-dev-app.sh`)
+3. Clears quarantine xattrs
+4. Writes `target/.metadata_never_index` so Spotlight skips the Cargo output tree
+5. Deletes the build-tree `.app` (DMG stays). Use `KEEP_BUNDLE=1` if you still
+   need `open target/.../srelens.app` (e.g. perf measurements).
+
+Do **not** leave both `/Applications/srelens.app` and
+`target/*/bundle/macos/srelens.app` around for daily use. One identity, one
+path.
+
 ## Architecture
 
 > **This fork:** product UI entry is `apps/desktop/src/workspace/` (delivery-first
-> shell). Platform capabilities stay in the registry / Kubernetes crates.
-> See [`docs/devops-cockpit/ARCHITECTURE.md`](devops-cockpit/ARCHITECTURE.md).
+> shell). Platform capabilities stay in the registry / Kubernetes crates. Open work:
+> [`TODO.md`](../TODO.md). Product rules: [DevOps workspace shell](#devops-workspace-shell-this-fork)
+> below.
+
+### DevOps workspace shell (this fork)
+
+Delivery-first product: work item → change → build → artifact → deployment →
+runtime. **Salience** ([concepts](https://clegginabox.github.io/salience-macos/docs/concepts),
+[my-work](https://clegginabox.github.io/salience-macos/docs/my-work)) is the
+quality bar for UX *and* domain model — joined context, attention/situations,
+master-detail density, restrained macOS chrome. Copy the *feel* (hierarchy,
+compact rows, one focus per screen). Do not copy branding, logos, or a
+pixel-perfect layout.
+
+**Product reference layout:** Deliveries — list left, trace
+detail right, summary strip, situations on rows. The React shell should converge
+on that composition, not on a wall of disconnected provider widgets.
+
+#### Product surfaces
+
+| Surface | Role | Code |
+| --- | --- | --- |
+| **Primary** | Default on launch; “what needs attention”; one delivery chain | `HomeScreen`, `DeliveriesScreen`, `DeliveryTraceScreen` |
+| **Contextual** | Runtime depth when needed | `KubernetesExplorerScreen` |
+
+`WorkspaceApp` defaults to `home`. The delivery list keeps its selected trace
+beside it; runtime opens only as a contextual drill-down.
+
+#### Naming
+
+- **No “cockpit”** in user-facing copy, routes, or screen titles.
+- No scaffolding strings in production UI (`not wired yet`, `Focus (later)`,
+  instruction paragraphs in `ScreenHeader` description).
+
+#### What went wrong (2026-09 post-mortem)
+
+1. **Wrong hero screen** — a provider mosaic shipped before Home/Trace polish;
+   five panels without a unit-of-work narrative.
+2. **Inverted stages** — chrome effects before content density
+   and Salience-like master-detail.
+3. **Double chrome** — panel headers repeated the screen hierarchy.
+4. **Provider errors as the whole panel** — should be partial trace +
+   `sourceErrors`, not a full-pane failure wall.
+5. **Adapters exist; composition does not** — `jira` / `gitlab` / `bitbucket` /
+   `jenkins` + `devops-model` are fine; UI still reads as five tabs, not one graph.
+
+Backend/modularity is not the blocker. **Composition, polish, and primary IA**
+are.
+
+#### Open backlog
+
+Tracked in [`TODO.md`](../TODO.md) — do not duplicate checklists here.
+
+#### Checks for workspace UI changes
+
+```bash
+pnpm --filter @srelens/desktop test -- WorkspaceApp HomeScreen DeliveriesScreen DeliveryTrace
+pnpm --filter @srelens/desktop test -- qualityGates
+cargo test --workspace
+```
+
+Drive the screen in the desktop app or Vite harness with stubs — green unit tests
+alone are not enough for layout work.
+
+---
 
 srelens builds **two hosts on one shared core**. The desktop app (Tauri) and the
 headless web server (axum) both assemble the *same* capability registry and drive
@@ -467,6 +560,6 @@ is *usable*.
 - **Branching** — `dev` is the default branch; open PRs against it. `main` carries stable releases.
 - **Commits** — imperative subject line, body explaining *why* when non-obvious. Stable releases are Conventional-Commit-driven, so use `feat(scope):` / `fix(scope):` prefixes.
 - **Formatting** — `cargo fmt` for Rust; the existing Prettier-ish style for TS (match surrounding code).
-- **UI** — the new design composes `@srelens/ui-kit` in `packages/ui-next`; shared tokens and component rules live in `packages/ui-kit/src/styles`. Read the [design contract and visibility audit](../design.md) for theme, contrast, typography, density and verification rules. The classic design uses `src/components/ui` (shadcn/radix), `src/ui` and `src/ui/styles.css`. Use the owning design’s tokens rather than ad-hoc colours.
+- **UI** — the new design composes `@srelens/ui-kit` in `packages/ui-next`; shared tokens and component rules live in `packages/ui-kit/src/styles`. The classic design uses `src/components/ui` (shadcn/radix), `src/ui` and `src/ui/styles.css`. Use the owning design’s tokens rather than ad-hoc colours.
 - **No direct Tauri imports** outside `src/transport/`.
 - **No host-specific logic in `crates/`** — if a change only makes sense for the desktop or only for the web, it belongs in `apps/desktop/src-tauri` or `crates/server`, not in the shared core.

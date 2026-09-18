@@ -31,6 +31,7 @@ export function CustomResourceBrowser({
   detailDrawerWidth = 480,
   view,
   onViewChange,
+  active = true,
 }: {
   context: string;
   crd: CrdRef;
@@ -40,6 +41,11 @@ export function CustomResourceBrowser({
   /** Sort + filtered column owned by the tab, so they survive a switch (#254). */
   view?: TabViewState;
   onViewChange?: (patch: Partial<TabViewState>) => void;
+  /**
+   * When false, skip list fetches (hidden / parked). Classic App unmounts
+   * inactive tabs; CRDs use one-shot list (not shared watch).
+   */
+  active?: boolean;
 }) {
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [namespace, setNamespace] = useState("");
@@ -56,24 +62,25 @@ export function CustomResourceBrowser({
   };
 
   useEffect(() => {
-    if (!crd.namespaced) return;
+    if (!active || !crd.namespaced) return;
     void listNamespaces(context).then((o) => setNamespaces(o.namespaces ?? []));
-  }, [context, crd.namespaced]);
+  }, [active, context, crd.namespaced]);
 
   useEffect(() => {
-    let active = true;
+    if (!active) return;
+    let alive = true;
     setRows(null);
     setError("");
     setSelected(null);
     void listCustomResource(context, crd, crd.namespaced ? namespace : null).then((o) => {
-      if (!active) return;
+      if (!alive) return;
       if (o.error) setError(o.error);
       else setRows(o.items ?? []);
     });
     return () => {
-      active = false;
+      alive = false;
     };
-  }, [context, crd, namespace, reloadKey]);
+  }, [active, context, crd, namespace, reloadKey]);
 
   const printerKeys = useMemo(
     () => printerColumnKeys(crd.printerColumns ?? []),

@@ -61,7 +61,10 @@ pub fn has_saved_window_state(app: &tauri::App) -> bool {
     use tauri::Manager;
     app.path()
         .app_config_dir()
-        .map(|dir| dir.join(tauri_plugin_window_state::DEFAULT_FILENAME).exists())
+        .map(|dir| {
+            dir.join(tauri_plugin_window_state::DEFAULT_FILENAME)
+                .exists()
+        })
         .unwrap_or(false)
 }
 

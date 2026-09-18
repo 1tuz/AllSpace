@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   isTauri,
+  isVaultPasswordGateEnabled,
   vaultBiometricUnlock,
   vaultRecoverPassword,
   vaultSetupPassword,
@@ -188,6 +189,8 @@ function vaultExists(): boolean {
  * out of it.
  */
 function isCovered(): boolean {
+  // Password gate off → never treat the workspace as sealed for UI purposes.
+  if (!isVaultPasswordGateEnabled()) return false;
   return sealed || checkingLaunch || (vaultExists() && knownMode === null);
 }
 
@@ -248,6 +251,8 @@ function endLaunchCheck(): void {
  * that is already up notifies nobody and changes nothing.
  */
 export function lockWorkspace(): void {
+  // Gate disabled: keep Lock workspace / ⌘⇧L from raising a password cover.
+  if (!isVaultPasswordGateEnabled()) return;
   if (sealed) return;
   sealed = true;
   emit();
@@ -380,7 +385,8 @@ export function useWorkspaceSealed(): boolean {
  * already known, which is exactly the shape the launch fail-open had.
  */
 export function useCanLockWorkspace(): boolean {
-  const snapshot = () => knownMode === "unlocked" && !isCovered();
+  const snapshot = () =>
+    isVaultPasswordGateEnabled() && knownMode === "unlocked" && !isCovered();
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
@@ -521,6 +527,7 @@ export function LockGate({ children, brandMarkSrc, onReady }: LockGateProps) {
   // a browser there is no vault to seal and nothing that could unlock one — a
   // cover there would be a browser build with no way in.
   const desktop = useMemo(() => isTauri(), []);
+  const gateEnabled = useMemo(() => isVaultPasswordGateEnabled(), []);
   const raised = useSealed();
   // §25's footer counts what is sealed. The contexts store is what this window
   // knows about, filled by `Window`'s own boot listing — which is also the read
@@ -529,8 +536,8 @@ export function LockGate({ children, brandMarkSrc, onReady }: LockGateProps) {
   const clusterCount = useContexts().length;
   // True until the launch read answers. The children stay down for it: a gate
   // that rendered them while the read was in flight would flash the live window
-  // over a sealed vault on every launch.
-  const [checking, setChecking] = useState(desktop);
+  // over a sealed vault on every launch. Skipped when the password gate is off.
+  const [checking, setChecking] = useState(desktop && gateEnabled);
   const [status, setStatus] = useState<VaultStatus | null>(null);
   const [statusError, setStatusError] = useState<unknown>(null);
   const [passphrase, setPassphrase] = useState("");
@@ -551,7 +558,7 @@ export function LockGate({ children, brandMarkSrc, onReady }: LockGateProps) {
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
 
-  const covered = raised || checking;
+  const covered = gateEnabled && (raised || checking);
 
   /**
    * Read what the backend says, and act on it.
@@ -625,6 +632,16 @@ export function LockGate({ children, brandMarkSrc, onReady }: LockGateProps) {
 
   useEffect(() => {
     if (!desktop) return;
+    if (!gateEnabled) {
+      setChecking(false);
+      unsealWorkspace();
+      rememberMode("unlocked");
+      if (!readyNotified.current) {
+        readyNotified.current = true;
+        onReadyRef.current?.();
+      }
+      return;
+    }
     let cancelled = false;
     void (async () => {
       const launch = await read({ mayOpen: true });
@@ -656,7 +673,7 @@ export function LockGate({ children, brandMarkSrc, onReady }: LockGateProps) {
     return () => {
       cancelled = true;
     };
-    // Mount only. `desktop` is read once and cannot change for this window.
+    // Mount only. `desktop` / `gateEnabled` are read once and cannot change for this window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

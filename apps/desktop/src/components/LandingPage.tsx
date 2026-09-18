@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowRight, FileCode2, Layers3, Search, Settings, SquareTerminal } from "lucide-react";
-import srelensMark from "../assets/srelens-mark.svg";
+import srelensMark from "../assets/srelens-mark.png";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

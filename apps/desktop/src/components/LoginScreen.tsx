@@ -1,4 +1,4 @@
-import srelensMark from "../assets/srelens-mark.svg";
+import srelensMark from "../assets/srelens-mark.png";
 import { Button } from "@/components/ui/button";
 import { devLogin, loginUrl } from "@srelens/core";
 

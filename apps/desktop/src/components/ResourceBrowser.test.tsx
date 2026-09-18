@@ -108,6 +108,7 @@ vi.mock("@srelens/core/react", async (importOriginal) => {
 });
 
 import { ResourceBrowser, __clearListRowCacheForTests } from "./ResourceBrowser";
+import { __resetSharedKubeSubscriptionsForTests } from "@srelens/core/lib/sharedKubeSubscription";
 
 const pod = {
   name: "web-1",
@@ -135,6 +136,7 @@ beforeEach(() => {
   // The row cache is module-level and persists across tests in this file;
   // clear it so one test's loaded rows don't hydrate the next test's fresh mount.
   __clearListRowCacheForTests();
+  __resetSharedKubeSubscriptionsForTests();
   listNamespacesMock.mockReset();
   podLogsMock.mockReset();
   watchResourceMock.mockReset();
@@ -159,6 +161,63 @@ describe("ResourceBrowser", () => {
     expect(screen.getByText("live")).toBeDefined();
     // The column picker is now available on every resource table, not just Nodes.
     expect(screen.getByRole("button", { name: "Choose columns" })).toBeDefined();
+  });
+
+  it("does not start a watch while active is false", async () => {
+    listNamespacesMock.mockResolvedValue({ namespaces: ["default"] });
+    watchResourceMock.mockImplementation(watchWith([pod]));
+
+    render(<ResourceBrowser context="kind-dev" kind="pods" active={false} />);
+
+    await waitFor(() => expect(listNamespacesMock).toHaveBeenCalled());
+    expect(watchResourceMock).not.toHaveBeenCalled();
+  });
+
+  it("uses shared kube subscription by default (Classic + Explorer path)", async () => {
+    listNamespacesMock.mockResolvedValue({ namespaces: ["default"] });
+    watchResourceMock.mockImplementation(watchWith([pod]));
+
+    const { unmount } = render(<ResourceBrowser context="kind-dev" kind="pods" />);
+
+    await waitFor(() => expect(screen.getByText("web-1")).toBeDefined());
+    expect(watchResourceMock).toHaveBeenCalledTimes(1);
+    unmount();
+    const handle = await watchResourceMock.mock.results[0].value;
+    expect(handle.stop).toHaveBeenCalled();
+  });
+
+  it("dedupes one backend watch across two shared ResourceBrowsers", async () => {
+    listNamespacesMock.mockResolvedValue({ namespaces: ["default"] });
+    watchResourceMock.mockImplementation(watchWith([pod]));
+
+    const a = render(<ResourceBrowser context="kind-dev" kind="pods" sharedWatch />);
+    const b = render(<ResourceBrowser context="kind-dev" kind="pods" sharedWatch />);
+
+    await waitFor(() => expect(screen.getAllByText("web-1").length).toBeGreaterThanOrEqual(1));
+    expect(watchResourceMock).toHaveBeenCalledTimes(1);
+
+    a.unmount();
+    expect((await watchResourceMock.mock.results[0].value).stop).not.toHaveBeenCalled();
+    b.unmount();
+    expect((await watchResourceMock.mock.results[0].value).stop).toHaveBeenCalled();
+  });
+
+  it("keeps the direct watchResource fallback when sharedWatch is false", async () => {
+    listNamespacesMock.mockResolvedValue({ namespaces: ["default"] });
+    watchResourceMock.mockImplementation(watchWith([pod]));
+
+    render(<ResourceBrowser context="kind-dev" kind="pods" sharedWatch={false} />);
+
+    await waitFor(() => expect(screen.getByText("web-1")).toBeDefined());
+    expect(watchResourceMock).toHaveBeenCalledWith(
+      "kind-dev",
+      "",
+      "pods",
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+      [],
+    );
   });
 
   it("does not wipe a tab-restored search column on mount (#254)", async () => {

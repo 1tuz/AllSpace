@@ -125,12 +125,16 @@ fn which_on_path(bin: &str, path: &str) -> Option<String> {
     #[cfg(not(windows))]
     let pathext: Option<String> = None;
 
-    std::env::split_paths(path).filter(|d| !d.as_os_str().is_empty()).find_map(|dir| {
-        executable_candidates(bin, pathext.as_deref()).into_iter().find_map(|name| {
-            let candidate = dir.join(&name);
-            is_executable(&candidate).then(|| candidate.to_string_lossy().into_owned())
+    std::env::split_paths(path)
+        .filter(|d| !d.as_os_str().is_empty())
+        .find_map(|dir| {
+            executable_candidates(bin, pathext.as_deref())
+                .into_iter()
+                .find_map(|name| {
+                    let candidate = dir.join(&name);
+                    is_executable(&candidate).then(|| candidate.to_string_lossy().into_owned())
+                })
         })
-    })
 }
 
 /// Whether `path` is a file we can actually run. On Unix a PATH entry only
@@ -195,7 +199,13 @@ fn last_line(bytes: &[u8]) -> String {
 /// see `TurnDone` needs nothing further — the agent already closed its own
 /// turn. Pure over the sink, so the crash-reporting decision is unit-tested
 /// without spawning a process.
-fn finish_turn(sink: &dyn EventSink, channel: &str, saw_done: bool, crashed: bool, stderr_tail: &[u8]) {
+fn finish_turn(
+    sink: &dyn EventSink,
+    channel: &str,
+    saw_done: bool,
+    crashed: bool,
+    stderr_tail: &[u8],
+) {
     if saw_done {
         return;
     }
@@ -402,7 +412,10 @@ fn write_private_file(path: &std::path::Path, contents: &[u8]) -> std::io::Resul
         // Match the fail-closed semantics on other platforms too.
         use std::io::Write;
         let _ = std::fs::remove_file(path);
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
         f.write_all(contents)
     }
 }
@@ -461,7 +474,9 @@ pub async fn chat_send(
     // later `remove_dir_all` — resolve OUTSIDE the temp dir, so validate it to
     // a bare component before it touches any path. Real ids are startChat uuids.
     if session.is_empty()
-        || !session.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        || !session
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
     {
         return Err(format!("invalid session id {session:?}"));
     }
@@ -473,7 +488,10 @@ pub async fn chat_send(
     // whitespace-carrying token into the command line. Invalid → dropped
     // (fresh session), not an error: continuity is best-effort by design.
     let resume = resume.filter(|id| {
-        !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        !id.is_empty()
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
     });
 
     // The native agent takes an entirely different path from the CLI spawns
@@ -484,9 +502,16 @@ pub async fn chat_send(
     if matches!(kind, AgentKind::Srelens) {
         // The native agent carries its own conversation history in-process
         // (see `llm_agent`), so it has no CLI session id to resume or return.
-        return crate::llm_agent::run_native_agent(app, &chats, session, prompt, !images.is_empty(), turn)
-            .await
-            .map(|()| None);
+        return crate::llm_agent::run_native_agent(
+            app,
+            &chats,
+            session,
+            prompt,
+            !images.is_empty(),
+            turn,
+        )
+        .await
+        .map(|()| None);
     }
 
     let channel = format!("chat://{session}");
@@ -501,7 +526,10 @@ pub async fn chat_send(
     // stale entry from a previous turn has a different generation and is
     // dropped by the same take.
     if chats.take_pending_cancel(&session, turn) {
-        sink.emit(&channel, serde_json::to_value(AgentEvent::TurnDone).unwrap());
+        sink.emit(
+            &channel,
+            serde_json::to_value(AgentEvent::TurnDone).unwrap(),
+        );
         // Echo the resume id back: nothing ran, the stored session is intact,
         // and the caller stores exactly what's returned — a bare `None` here
         // would read as "clear it" (the failed-resume signal from
@@ -543,7 +571,8 @@ pub async fn chat_send(
             sink.emit(
                 &channel,
                 serde_json::to_value(AgentEvent::Error {
-                    message: "image attachments are only supported with the Codex agent".to_string(),
+                    message: "image attachments are only supported with the Codex agent"
+                        .to_string(),
                 })
                 .unwrap(),
             );
@@ -605,7 +634,8 @@ pub async fn chat_send(
         AgentKind::Claude => {
             let cfg = srelens_agent::adapter::McpConfig::http(&url, &token);
             let cfg_path = dir.join(format!("srelens-mcp-{session}.json"));
-            write_private_file(&cfg_path, &serde_json::to_vec(&cfg).unwrap()).map_err(|e| e.to_string())?;
+            write_private_file(&cfg_path, &serde_json::to_vec(&cfg).unwrap())
+                .map_err(|e| e.to_string())?;
             _cfg_guard = Some(TempFile(cfg_path.clone()));
             let effective_prompt = prompt_with_images(&prompt, &image_paths);
             srelens_agent::adapter::claude_command(
@@ -637,7 +667,8 @@ pub async fn chat_send(
             // an mcp.json in CURSOR_CONFIG_DIR is silently ignored, so the
             // server never connects). So the deny-list goes in the config dir
             // and the MCP server goes in `<workspace>/.cursor/mcp.json`.
-            let cursor_cfg_dir = create_private_dir(&dir, &format!("srelens-cursor-cfg-{session}"))?;
+            let cursor_cfg_dir =
+                create_private_dir(&dir, &format!("srelens-cursor-cfg-{session}"))?;
             _cursor_cfg_dir_guard = Some(TempDir(cursor_cfg_dir.clone()));
             std::fs::write(
                 cursor_cfg_dir.join("cli-config.json"),
@@ -695,9 +726,15 @@ pub async fn chat_send(
         let message = "the agent process had no stdout".to_string();
         sink.emit(
             &channel,
-            serde_json::to_value(AgentEvent::Error { message: message.clone() }).unwrap(),
+            serde_json::to_value(AgentEvent::Error {
+                message: message.clone(),
+            })
+            .unwrap(),
         );
-        sink.emit(&channel, serde_json::to_value(AgentEvent::TurnDone).unwrap());
+        sink.emit(
+            &channel,
+            serde_json::to_value(AgentEvent::TurnDone).unwrap(),
+        );
         return Err(message);
     };
 
@@ -727,7 +764,11 @@ pub async fn chat_send(
         })
     });
 
-    chats.children.lock().unwrap().insert(session.clone(), child);
+    chats
+        .children
+        .lock()
+        .unwrap()
+        .insert(session.clone(), child);
 
     // Honor a Stop that landed while we were preparing (before the child was
     // registered, so `chat_cancel` armed a pending flag instead of killing
@@ -837,14 +878,20 @@ mod tests {
             next_resume_id(Some("new".into()), Some("old".into()), true),
             Some("new".into())
         );
-        assert_eq!(next_resume_id(Some("new".into()), None, false), Some("new".into()));
+        assert_eq!(
+            next_resume_id(Some("new".into()), None, false),
+            Some("new".into())
+        );
     }
 
     #[test]
     fn a_clean_turn_without_an_id_echoes_the_resume_back() {
         // Shape drift or a cancel (never `crashed` — chat_cancel reaps the
         // child): the stored session is intact, keep it.
-        assert_eq!(next_resume_id(None, Some("old".into()), false), Some("old".into()));
+        assert_eq!(
+            next_resume_id(None, Some("old".into()), false),
+            Some("old".into())
+        );
         assert_eq!(next_resume_id(None, None, false), None);
     }
 
@@ -896,7 +943,10 @@ mod tests {
 
     #[test]
     fn off_windows_a_binary_is_probed_by_its_bare_name_only() {
-        assert_eq!(executable_candidates("claude", None), vec!["claude".to_string()]);
+        assert_eq!(
+            executable_candidates("claude", None),
+            vec!["claude".to_string()]
+        );
     }
 
     #[test]
@@ -915,9 +965,10 @@ mod tests {
     #[test]
     fn an_explicit_extension_is_not_doubled_up() {
         // A bin that already names its extension resolves as-is.
-        assert_eq!(executable_candidates("claude.exe", Some(".EXE;.CMD")), vec![
-            "claude.exe".to_string()
-        ]);
+        assert_eq!(
+            executable_candidates("claude.exe", Some(".EXE;.CMD")),
+            vec!["claude.exe".to_string()]
+        );
     }
 
     #[cfg(unix)]
@@ -930,7 +981,12 @@ mod tests {
         write_private_file(&path, b"secret-bearer-token").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         // Only the owner may read/write; group and other bits must be clear.
-        assert_eq!(mode & 0o777, 0o600, "private file must be 0600, got {:o}", mode & 0o777);
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "private file must be 0600, got {:o}",
+            mode & 0o777
+        );
         assert_eq!(std::fs::read(&path).unwrap(), b"secret-bearer-token");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -949,7 +1005,10 @@ mod tests {
         assert_eq!(which_on_path("claude", dir.to_str().unwrap()), None);
         // Once it carries an execute bit, it resolves.
         std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(which_on_path("claude", dir.to_str().unwrap()).as_deref(), plain.to_str());
+        assert_eq!(
+            which_on_path("claude", dir.to_str().unwrap()).as_deref(),
+            plain.to_str()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -966,7 +1025,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(&a).unwrap().permissions().mode() & 0o777, 0o700);
+            assert_eq!(
+                std::fs::metadata(&a).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
         }
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -978,12 +1040,18 @@ mod tests {
         // A Stop during turn 1's prep arms it; turn 1 consumes it exactly once.
         chats.arm_pending_cancel("s1".into(), 1);
         assert!(chats.take_pending_cancel("s1", 1));
-        assert!(!chats.take_pending_cancel("s1", 1), "consumed on first take");
+        assert!(
+            !chats.take_pending_cancel("s1", 1),
+            "consumed on first take"
+        );
         // A stale Stop aimed at turn 1 (it landed after that turn had already
         // finished) must not kill turn 2 — and taking it also drops it.
         chats.arm_pending_cancel("s2".into(), 1);
         assert!(!chats.take_pending_cancel("s2", 2));
-        assert!(!chats.take_pending_cancel("s2", 1), "mismatch drops the entry");
+        assert!(
+            !chats.take_pending_cancel("s2", 1),
+            "mismatch drops the entry"
+        );
     }
 
     #[test]
@@ -1002,7 +1070,10 @@ mod tests {
 
     impl BinDir {
         fn new(bin: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!("srelens-resolve-agent-test-{}", uuid::Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!(
+                "srelens-resolve-agent-test-{}",
+                uuid::Uuid::new_v4()
+            ));
             std::fs::create_dir_all(&dir).unwrap();
             let file = dir.join(bin);
             std::fs::write(&file, b"#!/bin/sh\n").unwrap();
@@ -1138,7 +1209,13 @@ mod tests {
     #[test]
     fn a_clean_turn_that_already_saw_turn_done_emits_nothing_further() {
         let sink = std::sync::Arc::new(RecordingSink(Default::default()));
-        finish_turn(sink.as_ref(), "chat://s1", true, true, b"ignored, moot: saw_done wins");
+        finish_turn(
+            sink.as_ref(),
+            "chat://s1",
+            true,
+            true,
+            b"ignored, moot: saw_done wins",
+        );
         assert!(sink.0.lock().unwrap().is_empty());
     }
 
@@ -1186,8 +1263,10 @@ mod tests {
 
     #[test]
     fn temp_file_guard_removes_the_file_on_drop() {
-        let path = std::env::temp_dir()
-            .join(format!("srelens-assistant-tempfile-test-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "srelens-assistant-tempfile-test-{}",
+            std::process::id()
+        ));
         std::fs::write(&path, b"secret").unwrap();
         {
             let _guard = TempFile(path.clone());
@@ -1220,8 +1299,10 @@ mod tests {
 
     #[test]
     fn temp_dir_guard_removes_the_directory_and_its_contents_on_drop() {
-        let path = std::env::temp_dir()
-            .join(format!("srelens-assistant-tempdir-test-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "srelens-assistant-tempdir-test-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&path).unwrap();
         std::fs::write(path.join("nested.txt"), b"nothing to see here").unwrap();
         {
@@ -1235,7 +1316,10 @@ mod tests {
     fn prompt_with_images_lists_each_path_then_a_blank_line_then_the_prompt() {
         let images = vec!["/tmp/a.png".to_string(), "/tmp/b.png".to_string()];
         let got = prompt_with_images("why?", &images);
-        assert_eq!(got, "Attached image: /tmp/a.png\nAttached image: /tmp/b.png\n\nwhy?");
+        assert_eq!(
+            got,
+            "Attached image: /tmp/a.png\nAttached image: /tmp/b.png\n\nwhy?"
+        );
     }
 
     #[test]
@@ -1260,7 +1344,10 @@ mod tests {
     #[test]
     fn a_decoded_image_written_to_a_temp_file_reads_back_byte_identical() {
         let bytes = decode_base64_image("aGVsbG8=").expect("valid base64");
-        let path = std::env::temp_dir().join(format!("srelens-assistant-image-test-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!(
+            "srelens-assistant-image-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::write(&path, &bytes).unwrap();
         let read_back = std::fs::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
@@ -1278,8 +1365,17 @@ mod tests {
         let needle1 = ["McpServer", "::", "new"].join("");
         let needle2 = ["Flag", "Gated"].join("");
         let needle3 = ["Always", "Allow"].join("");
-        assert!(!src.contains(&needle1), "assistant must reuse the running server");
-        assert!(!src.contains(&needle2), "assistant must not introduce a headless policy");
-        assert!(!src.contains(&needle3), "assistant must never bypass consent");
+        assert!(
+            !src.contains(&needle1),
+            "assistant must reuse the running server"
+        );
+        assert!(
+            !src.contains(&needle2),
+            "assistant must not introduce a headless policy"
+        );
+        assert!(
+            !src.contains(&needle3),
+            "assistant must never bypass consent"
+        );
     }
 }

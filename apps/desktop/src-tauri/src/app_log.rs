@@ -40,7 +40,8 @@ pub async fn read_app_log(app: AppHandle, max_bytes: Option<u64>) -> Result<Stri
     };
     let len = file.metadata().map_err(|e| e.to_string())?.len();
     let start = len.saturating_sub(cap);
-    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(start))
+        .map_err(|e| e.to_string())?;
     // Read as bytes: a byte-offset seek can split a UTF-8 char, so decode lossy
     // rather than risk a hard error on a valid log.
     let mut bytes = Vec::new();

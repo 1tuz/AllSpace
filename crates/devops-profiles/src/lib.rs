@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use srelens_capability::{Annotations, Capability, CapabilityError, Registry};
 
+mod tls_http;
+pub use tls_http::blocking_client;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Provider {
@@ -58,12 +61,45 @@ impl ProviderConfig {
     }
 }
 
+/// TLS posture for outbound DevOps provider HTTP.
+///
+/// Preferred order: system trust → optional corporate CA PEM → explicit insecure.
+/// Default is secure (system trust only). Private corporate endpoints that still
+/// need `verify=False`-equivalent behavior must set `allowInsecure: true` on the
+/// profile — never silently globally.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TlsConfig {
+    /// Escape hatch: skip certificate verification. Must be explicit per profile.
+    #[serde(default)]
+    pub allow_insecure: bool,
+    /// Optional path to a PEM file (one or more CA certificates).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_bundle_path: Option<String>,
+}
+
+impl TlsConfig {
+    pub fn is_default(&self) -> bool {
+        !self.allow_insecure && self.ca_bundle_path.as_ref().is_none_or(|p| p.trim().is_empty())
+    }
+
+    pub fn insecure() -> Self {
+        Self {
+            allow_insecure: true,
+            ca_bundle_path: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Profile {
     pub id: String,
     pub label: String,
     pub providers: Vec<ProviderConfig>,
+    /// Profile-wide TLS for provider HTTP clients.
+    #[serde(default, skip_serializing_if = "TlsConfig::is_default")]
+    pub tls: TlsConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -447,6 +483,7 @@ pub struct ResolvedConnection {
     pub base_url: String,
     pub auth_method: AuthMethod,
     pub project_filters: Vec<String>,
+    pub tls: TlsConfig,
     pub credential: Credential,
 }
 
@@ -491,6 +528,7 @@ pub fn resolve_connection(
         base_url: config.base_url.clone(),
         auth_method: config.auth_method.clone(),
         project_filters: config.project_filters.clone(),
+        tls: profile.tls.clone(),
         credential,
     })
 }
@@ -539,6 +577,7 @@ mod tests {
                 ProviderConfig::jira("https://jira.example.test", AuthMethod::Session),
                 ProviderConfig::gitlab("https://gitlab.example.test", AuthMethod::AccessToken),
             ],
+            tls: TlsConfig::default(),
         };
         let komus = Profile {
             id: "komus".into(),
@@ -547,6 +586,7 @@ mod tests {
                 ProviderConfig::bitbucket_dc("https://bitbucket.example.test", AuthMethod::Basic),
                 ProviderConfig::jenkins("https://jenkins.example.test", AuthMethod::Basic),
             ],
+            tls: TlsConfig::default(),
         };
 
         assert_eq!(appfarm.validate(), Ok(()));
@@ -571,6 +611,7 @@ mod tests {
                 "https://gitlab.example.test",
                 AuthMethod::Basic,
             )],
+            tls: TlsConfig::default(),
         };
 
         assert_eq!(profile.validate(), Err(ProfileError::UnsupportedAuth));
@@ -681,8 +722,40 @@ mod tests {
                         )
                     },
                 ],
+                tls: TlsConfig::insecure(),
             }],
         }
+    }
+
+    #[test]
+    fn profile_tls_round_trips_and_lands_on_resolved_connection() {
+        let store = SessionCredentials::new();
+        store.remember(
+            &CredentialRef::new("komus", Provider::Jenkins),
+            Credential {
+                username: "build".into(),
+                secret: "token".into(),
+            },
+        );
+        let connection =
+            resolve_connection(&komus_state(), &store, Provider::Jenkins).expect("resolvable");
+        assert!(connection.tls.allow_insecure);
+
+        let wire = serde_json::to_value(Profile {
+            id: "x".into(),
+            label: "X".into(),
+            providers: vec![ProviderConfig::jira(
+                "https://jira.example.test",
+                AuthMethod::Session,
+            )],
+            tls: TlsConfig {
+                allow_insecure: false,
+                ca_bundle_path: Some("/etc/ssl/corp-ca.pem".into()),
+            },
+        })
+        .unwrap();
+        assert_eq!(wire["tls"]["caBundlePath"], "/etc/ssl/corp-ca.pem");
+        assert_eq!(wire["tls"]["allowInsecure"], false);
     }
 
     struct BrokenStore;

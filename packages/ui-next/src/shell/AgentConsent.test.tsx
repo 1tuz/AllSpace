@@ -121,6 +121,7 @@ vi.mock("@srelens/core", async (orig) => ({
 import type { ConfirmRequest } from "@srelens/core";
 import { AgentConsent } from "./AgentConsent";
 import { lockWorkspace, resetLock, __setKnownVaultMode } from "./LockGate";
+import { __setVaultPasswordGateEnabledForTests } from "@srelens/core";
 import { askAgent, getAgentRun, resetAgentRun } from "../lib/agentRun";
 
 const REQUEST = "mcp://confirm-request";
@@ -203,6 +204,7 @@ beforeEach(() => {
   ]);
   // Nothing here renders the gate itself; the store is what this component
   // reads, and a raise in one test must not still be up in the next.
+  __setVaultPasswordGateEnabledForTests(true);
   resetLock();
   // Same reason, one store over: a gate recorded in one test — or a turn left
   // busy by `startTurn()` — must not still be sitting in the run for the next.

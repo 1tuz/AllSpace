@@ -5,11 +5,11 @@
 
 Everything this server exposes over MCP, generated from the live registry so it cannot drift. Written for someone wiring an agent to srelens; the narrative reference is [MCP.md](MCP.md).
 
-## Tools (121)
+## Tools (132)
 
 Argument schemas are not reproduced here — call `tools/list` for those, which cannot go stale.
 
-### Kubernetes — read-only (59)
+### Kubernetes — read-only (60)
 
 | Tool | Summary |
 | --- | --- |
@@ -61,6 +61,7 @@ Argument schemas are not reproduced here — call `tools/list` for those, which 
 | `k8s.podLogs` | fetch logs for a pod in a connected kube context: the last 200 lines by default (tail_lines to change), or set all_lines to get everything the runtime still retains (can be large) |
 | `k8s.podMetrics` | pod CPU/memory usage (requires metrics-server) |
 | `k8s.podOverview` | pod totals, per-node counts and the pods that are not running, without listing pod bodies |
+| `k8s.podStatusCounts` | pod counts by phase for a cluster, counted without listing pod bodies |
 | `k8s.podsForPvc` | list pods in a namespace that mount a given PersistentVolumeClaim |
 | `k8s.podsForSelector` | list pods matching a label selector (a workload's managed pods) |
 | `k8s.podsForServiceAccount` | list pods in a namespace running as a given ServiceAccount |
@@ -152,25 +153,35 @@ Argument schemas are not reproduced here — call `tools/list` for those, which 
 | `toolbox.removePlugin` | remove an installed krew plugin |
 | `toolbox.upgradePlugin` | upgrade an installed krew plugin |
 
-### Server — read-only (18)
+### Server — read-only (28)
 
 | Tool | Summary |
 | --- | --- |
+| `bitbucket.getPullRequestDiff` | fetch a bounded file diff for one Bitbucket pull request |
+| `bitbucket.listBranches` | list branches of the active DevOps profile's Bitbucket projects |
 | `bitbucket.listCommits` | list commits of the active DevOps profile's Bitbucket projects |
 | `bitbucket.listPullRequests` | list pull requests of the active DevOps profile's Bitbucket projects |
+| `devops.listDeliveries` | list bounded live delivery summaries from the active profile's Jira/GitLab/Bitbucket/Jenkins sources |
+| `devops.myWork` | list actionable and recent live delivery summaries for My Work (bounded) |
 | `devops.profiles.list` | list configured DevOps connection profiles without credentials |
-| `devops.traceDelivery` | trace a work item across live Jira, GitLab, Bitbucket, and Jenkins sources with evidence |
-| `devops.traceIssue` | trace a DevOps work item through fixture issue, change, build, artifact, and workload data |
+| `devops.search` | search deliveries by query; local issue-key/SHA/PR/build anchors plus Jira, GitLab, Bitbucket, and Jenkins confirmation when the active profile configures them |
+| `devops.traceDelivery` | trace a delivery from a provider-neutral anchor across live Jira, GitLab, Bitbucket, and Jenkins sources with evidence |
 | `extensions.catalog` | Browse the native extension catalog with a durable cache; never connects clusters |
 | `extensions.catalogManifest` | Download and checksum-verify a catalog manifest for permission review; does not install it |
 | `extensions.list` | List installed declarative extensions |
 | `extensions.read` | Read a declared custom-resource contribution from an enabled extension |
 | `extensions.resource` | Inspect the selected resource of an enabled app |
 | `extensions.validate` | Check a declarative extension manifest exactly as installing it would and return every problem; does not install it |
+| `gitlab.getJobTrace` | read a bounded tail of a GitLab CI job trace for the active DevOps profile |
+| `gitlab.getMergeRequestDiff` | fetch a bounded file diff for one GitLab merge request |
+| `gitlab.getPipelineJobs` | list jobs of a GitLab pipeline for the active DevOps profile, including failure location |
+| `gitlab.listBranches` | list branches of the active DevOps profile's GitLab projects |
 | `gitlab.listCommits` | list commits of the active DevOps profile's GitLab projects |
 | `gitlab.listMergeRequests` | list merge requests of the active DevOps profile's GitLab projects |
 | `gitlab.listPipelines` | list pipelines of the active DevOps profile's GitLab projects |
+| `jenkins.getBuildLog` | read a bounded tail of a Jenkins build consoleText for the active DevOps profile |
 | `jenkins.listBuilds` | list builds of the active DevOps profile's Jenkins jobs |
+| `jira.getIssue` | read one Jira Data Center issue with bounded links and recent comments |
 | `jira.searchIssues` | search Jira Data Center issues by key through the active DevOps profile |
 | `ping` | health check; echoes the input back as { pong: <input> } |
 | `settings.get` | read durable desktop settings; omit key to return the complete map |

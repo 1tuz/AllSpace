@@ -252,6 +252,9 @@ mod tests {
         // A browser preconnect / favicon hit carries no auth code — the listener
         // must keep waiting, not fail the sign-in.
         assert_eq!(parse_callback_line("GET /favicon.ico HTTP/1.1"), None);
-        assert_eq!(parse_callback_line("GET /auth/cluster/callback HTTP/1.1"), None);
+        assert_eq!(
+            parse_callback_line("GET /auth/cluster/callback HTTP/1.1"),
+            None
+        );
     }
 }

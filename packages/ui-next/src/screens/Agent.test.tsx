@@ -6,6 +6,7 @@ import { Agent } from "./Agent";
 import { PortalScopeProvider } from "@srelens/ui-kit";
 import { ConsoleProvider, useConsole } from "../console";
 import { resetLock, __setKnownVaultMode } from "../shell/LockGate";
+import { __setVaultPasswordGateEnabledForTests } from "@srelens/core";
 import { resetContexts, setContexts } from "../lib/clusters";
 import { defaultState } from "../lib/tabs";
 import * as tabs from "../lib/tabsStore";
@@ -148,6 +149,7 @@ beforeEach(() => {
   // test below asserts about a dock that correctly renders nothing. Same line,
   // same reason, as `Console.test.tsx` and `AgentConsent.test.tsx`.
   resetLock();
+  __setVaultPasswordGateEnabledForTests(true);
   __setKnownVaultMode("unlocked");
   resetContexts();
   tabs.setState(defaultState([]));

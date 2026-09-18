@@ -1,7 +1,9 @@
+import type { DeliveryAnchor } from "@srelens/core";
+
 export type WorkspaceRoute =
   | { name: "home" }
   | { name: "deliveries" }
-  | { name: "delivery"; id: string }
+  | { name: "delivery"; id: string; anchor?: DeliveryAnchor }
   | { name: "connections" }
   | { name: "settings" }
   | { name: "kubernetes" }
@@ -13,7 +15,7 @@ export type NavItem = {
 };
 
 export const PRIMARY_NAV: NavItem[] = [
-  { id: "home", label: "Home" },
+  { id: "home", label: "My Work" },
   { id: "deliveries", label: "Deliveries" },
   { id: "kubernetes", label: "Kubernetes" },
 ];

@@ -77,6 +77,8 @@ mod tests {
         assert_eq!(channel, "watch:test");
 
         stop_watch(channel, app.state()).await.unwrap();
-        stop_watch("watch:unknown".into(), app.state()).await.unwrap();
+        stop_watch("watch:unknown".into(), app.state())
+            .await
+            .unwrap();
     }
 }

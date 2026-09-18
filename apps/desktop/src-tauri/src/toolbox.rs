@@ -9,8 +9,10 @@
 use std::io::Read;
 
 use serde::Serialize;
-use srelens_kube::toolbox::{run_helm_install, run_krew_install, run_kubectl_install, srelens_bin_dir};
 use srelens_kube::toolbox::InstallToolOut;
+use srelens_kube::toolbox::{
+    run_helm_install, run_krew_install, run_kubectl_install, srelens_bin_dir,
+};
 use srelens_kube::toolbox_install::InstallError;
 use tauri::{AppHandle, Emitter};
 
@@ -47,7 +49,10 @@ fn fetch_with_progress(url: &str, app: &AppHandle, tool: &str) -> Result<Vec<u8>
         .send()
         .map_err(|e| InstallError::Download(e.to_string()))?;
     if !resp.status().is_success() {
-        return Err(InstallError::Download(format!("{} for {url}", resp.status())));
+        return Err(InstallError::Download(format!(
+            "{} for {url}",
+            resp.status()
+        )));
     }
 
     let total = resp.content_length();
@@ -67,7 +72,11 @@ fn fetch_with_progress(url: &str, app: &AppHandle, tool: &str) -> Result<Vec<u8>
         if report {
             let _ = app.emit(
                 "toolbox://progress",
-                ToolInstallProgress { tool: tool.to_string(), received, total },
+                ToolInstallProgress {
+                    tool: tool.to_string(),
+                    received,
+                    total,
+                },
             );
         }
     }
@@ -83,7 +92,11 @@ pub async fn start_tool_install(app: AppHandle, tool: String) -> Result<InstallT
         let result = match tool.as_str() {
             "kubectl" => run_kubectl_install(&srelens_bin_dir(), &fetch),
             "helm" => run_helm_install(&srelens_bin_dir(), &fetch),
-            "krew" => run_krew_install(&std::env::temp_dir(), &fetch, &crate::capabilities::run_tool),
+            "krew" => run_krew_install(
+                &std::env::temp_dir(),
+                &fetch,
+                &crate::capabilities::run_tool,
+            ),
             other => Err(InstallError::Download(format!("unknown tool: {other}"))),
         };
         result.map_err(|e| e.to_string())
@@ -91,4 +104,3 @@ pub async fn start_tool_install(app: AppHandle, tool: String) -> Result<InstallT
     .await
     .map_err(|e| e.to_string())?
 }
-

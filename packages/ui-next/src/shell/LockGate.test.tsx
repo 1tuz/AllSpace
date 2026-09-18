@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UserEvent } from "@testing-library/user-event";
@@ -19,6 +19,7 @@ vi.mock("@srelens/core", async (orig) => ({
 }));
 
 import type { VaultStatus } from "@srelens/core";
+import { __setVaultPasswordGateEnabledForTests } from "@srelens/core";
 import {
   isWorkspaceSealed,
   LockGate,
@@ -29,6 +30,15 @@ import {
 } from "./LockGate";
 import { resetContexts, setContexts } from "../lib/clusters";
 
+beforeEach(() => {
+  __setVaultPasswordGateEnabledForTests(true);
+  resetLock();
+});
+
+afterEach(() => {
+  __setVaultPasswordGateEnabledForTests(null);
+  resetLock();
+});
 /**
  * The four vault modes this gate has to tell apart, kept as independent
  * fixtures. One "everything true" status would let the gate read whichever

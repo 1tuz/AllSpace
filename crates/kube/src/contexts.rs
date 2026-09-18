@@ -17,6 +17,11 @@ use crate::local_cluster::classify;
 pub struct ListContextsIn {
     /// Additional kubeconfig files merged after the default files.
     pub paths: Option<Vec<String>>,
+    /// When true, `paths` replaces the process defaults (`$KUBECONFIG` /
+    /// `~/.kube/config`) and the managed paste folder. Workspace contours use
+    /// this so Komus does not inherit AppFarm contexts from the shell env.
+    #[serde(rename = "replaceDefaults")]
+    pub replace_defaults: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
@@ -106,7 +111,15 @@ pub fn list_contexts_capability(
                 // A caller that names its own files rebuilds from the static
                 // defaults; one that doesn't keeps whatever is already active,
                 // so an MCP `{}` call never discards paths the desktop set.
+                // Contour-scoped callers pass `replaceDefaults` so a Komus
+                // profile cannot keep AppFarm contexts from `$KUBECONFIG`.
+                let replace_defaults = input.replace_defaults;
                 let mut paths = match input.paths {
+                    Some(additional) if replace_defaults => additional
+                        .into_iter()
+                        .map(PathBuf::from)
+                        .filter(|path| !path.as_os_str().is_empty())
+                        .collect::<Vec<_>>(),
                     Some(additional) => {
                         let mut paths = default_paths;
                         for path in additional.into_iter().map(PathBuf::from) {
@@ -124,10 +137,14 @@ pub fn list_contexts_capability(
                 // Read HERE, not captured at registry-build time: the folder's
                 // contents change while the app runs, and a startup snapshot
                 // would miss anything pasted or dropped in afterwards (#256).
-                if let Some(dir) = &managed_dir {
-                    for managed in crate::connect::kubeconfig_files_in(dir) {
-                        if !paths.contains(&managed) {
-                            paths.push(managed);
+                // Contour-exclusive lists skip managed pastes — those are
+                // global and would re-mix contours.
+                if !replace_defaults {
+                    if let Some(dir) = &managed_dir {
+                        for managed in crate::connect::kubeconfig_files_in(dir) {
+                            if !paths.contains(&managed) {
+                                paths.push(managed);
+                            }
                         }
                     }
                 }
@@ -538,6 +555,50 @@ mod tests {
         assert_eq!(out["contexts"][0]["name"], "ctx-a");
         assert_eq!(out["contexts"][0]["server"], "https://a");
         let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn replace_defaults_ignores_process_kubeconfig_and_managed_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let appfarm = dir.path().join("cpstbl.yaml");
+        let komus = dir.path().join("dev.yaml");
+        let managed_dir = dir.path().join("managed");
+        std::fs::create_dir_all(&managed_dir).unwrap();
+        let managed = managed_dir.join("pasted.yaml");
+        let yaml = |name: &str, server: &str| {
+            format!(
+                "clusters:\n  - name: {name}\n    cluster: {{ server: {server} }}\ncontexts:\n  - name: {name}\n    context: {{ cluster: {name}, user: u }}\nusers:\n  - name: u\n    user: {{}}\n"
+            )
+        };
+        std::fs::write(&appfarm, yaml("cpstbl", "https://appfarm")).unwrap();
+        std::fs::write(&komus, yaml("dev-doffice", "https://komus")).unwrap();
+        std::fs::write(&managed, yaml("pasted", "https://pasted")).unwrap();
+
+        let mut reg = Registry::new();
+        // Process defaults look like AppFarm; managed paste would also pollute.
+        reg.register(list_contexts_capability(
+            ClientCache::new(appfarm.clone()),
+            vec![appfarm],
+            Some(managed_dir),
+        ));
+        let out = reg
+            .invoke(
+                "k8s.listContexts",
+                json!({
+                    "paths": [komus.to_string_lossy()],
+                    "replaceDefaults": true
+                }),
+            )
+            .await
+            .unwrap();
+        let names: Vec<&str> = out["contexts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|ctx| ctx["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, vec!["dev-doffice"]);
+        assert!(!names.iter().any(|name| *name == "cpstbl" || *name == "pasted"));
     }
 
     #[tokio::test]

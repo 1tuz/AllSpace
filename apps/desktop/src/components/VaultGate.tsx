@@ -7,6 +7,7 @@ import {
   vaultSetupPassword,
   vaultStatus,
   vaultUnlockPassword,
+  isVaultPasswordGateEnabled,
   type VaultStatus,
 } from "@srelens/core";
 
@@ -17,6 +18,10 @@ import {
  * copy); later launches show unlock — password, or one auto-raised biometric
  * prompt when the Touch ID / Windows Hello skip is enrolled. "Forgot
  * password?" reads the opt-in keychain recovery copy and shows it once.
+ *
+ * Disabled by default (`isVaultPasswordGateEnabled`) — machine-key vault
+ * proceeds with no cover. Security settings still offer opt-in setup; set
+ * `srelens.vaultPasswordGate` = `1` to bring the gate back.
  *
  * Renders nothing outside a Tauri window (web mode has no vault commands).
  */
@@ -68,6 +73,10 @@ export function VaultGate({ onReady }: { onReady?: () => void }) {
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
+    if (!isVaultPasswordGateEnabled()) {
+      notifyReady();
+      return;
+    }
     void refresh().then((s) => {
       // The enrolled biometric skip IS the launch unlock: raise it once,
       // uninvited. Cancelling falls back to the password form below.
@@ -79,6 +88,8 @@ export function VaultGate({ onReady }: { onReady?: () => void }) {
       }
     });
   }, []);
+
+  if (!isVaultPasswordGateEnabled()) return null;
 
   if (statusFailed) {
     return (

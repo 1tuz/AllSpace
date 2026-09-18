@@ -18,16 +18,34 @@ import {
  * xterm and its CSS are dynamically imported so they stay out of the jsdom test
  * graph — this component is verified live against a cluster. The reconnect
  * *policy* it drives is pure and unit-tested in `lib/terminalReconnect`.
+ * Stop-on-hide (`active`) is unit-tested with an xterm double.
  */
-export function TerminalPane({ driver, banner }: { driver: TerminalDriver; banner?: string }) {
+export function TerminalPane({
+  driver,
+  banner,
+  active = true,
+}: {
+  driver: TerminalDriver;
+  banner?: string;
+  /**
+   * When false (inactive Dock tab), close the live PTY/exec session but keep
+   * the xterm scrollback. Re-showing opens a *new* shell and says so — exec
+   * sessions are not resumable.
+   */
+  active?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<TermStatus>({ kind: "connecting" });
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   // Manual controls, wired once xterm has loaded.
   const controls = useRef({
     reconnect() {},
+    pause() {},
+    resume() {},
     clear() {},
     focus() {},
     searchNext(_q: string) {},
@@ -49,12 +67,26 @@ export function TerminalPane({ driver, banner }: { driver: TerminalDriver; banne
     let cleanupExtra: (() => void) | undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let searchAddon: any = null;
+    /** Hide-induced close: onExit must not auto-reconnect or invent output. */
+    let pausedByHide = false;
+    /**
+     * Auto-open a shell when the pane is shown again only if we stopped one
+     * for hide (or never started because the tab was already inactive). An
+     * intentional `exit` must stay disconnected across tab switches.
+     */
+    let resumeOnShow = false;
 
     const divider = (label: string) => `\r\n\x1b[2m── ${label} ──\x1b[0m\r\n`;
 
     const handleExit = (reason: ExitReason) => {
       if (disposed || !term) return;
       conn = null;
+      if (pausedByHide) {
+        // We closed the session because the Dock tab is hidden. Scrollback stays;
+        // do not schedule reconnect or write a second "session ended" line.
+        return;
+      }
+      resumeOnShow = false;
       // A shell that ran and then dropped gets its full retry budget back; one
       // that never became usable keeps counting, so a shell that can never
       // start stops retrying and shows why (#263).
@@ -81,7 +113,9 @@ export function TerminalPane({ driver, banner }: { driver: TerminalDriver; banne
     };
 
     const connect = async (isReconnect: boolean) => {
-      if (disposed || !term) return;
+      if (disposed || !term || !activeRef.current) return;
+      pausedByHide = false;
+      resumeOnShow = false;
       setStatus(isReconnect ? { kind: "reconnecting", attempt: Math.max(attempt, 1) } : { kind: "connecting" });
       let opened: TerminalConnection;
       usableSince = null;
@@ -102,8 +136,13 @@ export function TerminalPane({ driver, banner }: { driver: TerminalDriver; banne
         handleExit({ kind: "error", message: cause instanceof Error ? cause.message : String(cause) });
         return;
       }
-      if (disposed) {
+      if (disposed || !activeRef.current) {
+        // Hidden while connect was in flight — treat as hide-stop so show
+        // opens a fresh shell rather than leaving a silent gap.
+        pausedByHide = true;
+        resumeOnShow = true;
         opened.close();
+        setStatus({ kind: "disconnected", reason: "paused (tab hidden)" });
         return;
       }
       conn = opened;
@@ -114,11 +153,40 @@ export function TerminalPane({ driver, banner }: { driver: TerminalDriver; banne
       setStatus({ kind: "live" });
     };
 
+    const pause = () => {
+      if (!term) return;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+        // Was mid-reconnect — show again should open a new attempt.
+        resumeOnShow = true;
+        pausedByHide = true;
+        setStatus({ kind: "disconnected", reason: "paused (tab hidden)" });
+      }
+      if (!conn) return;
+      pausedByHide = true;
+      resumeOnShow = true;
+      const closing = conn;
+      conn = null;
+      usableSince = null;
+      closing.close();
+      term.write(divider("paused (tab hidden) — new shell when shown"));
+      setStatus({ kind: "disconnected", reason: "paused (tab hidden)" });
+    };
+
     controls.current = {
       reconnect: () => {
         // An explicit reconnect is a fresh decision by the user, so it does
         // start the budget over.
         if (reconnectTimer) clearTimeout(reconnectTimer);
+        attempt = 0;
+        pausedByHide = false;
+        resumeOnShow = false;
+        void connect(true);
+      },
+      pause,
+      resume: () => {
+        if (conn || !term || !activeRef.current || !resumeOnShow) return;
         attempt = 0;
         void connect(true);
       },
@@ -171,7 +239,13 @@ export function TerminalPane({ driver, banner }: { driver: TerminalDriver; banne
         observer?.disconnect();
       };
 
-      void connect(false);
+      if (activeRef.current) void connect(false);
+      else {
+        // Tab already inactive — wait for show; do not invent a live session.
+        pausedByHide = true;
+        resumeOnShow = true;
+        setStatus({ kind: "disconnected", reason: "paused (tab hidden)" });
+      }
     })();
 
     return () => {
@@ -182,6 +256,12 @@ export function TerminalPane({ driver, banner }: { driver: TerminalDriver; banne
       term?.dispose();
     };
   }, [driver, banner]);
+
+  // Hidden Dock panes must not keep a live PTY (same active gate as LogsView).
+  useEffect(() => {
+    if (active) controls.current.resume();
+    else controls.current.pause();
+  }, [active]);
 
   const restartLabel = driver.kind === "local" ? "Restart shell" : "Reconnect";
 

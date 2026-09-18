@@ -204,6 +204,28 @@ const EXCLUDED: &[(&str, &str)] = &[
         "an upgrade is a no-op on a freshly-installed plugin (already latest); the install/remove \
          cases below exercise the same kubectl-krew subprocess path",
     ),
+    (
+        "devops.listDeliveries",
+        "needs a configured live DevOps profile and provider credentials; correlation unit tests \
+         and registry camelCase invoke cover the bounded list contract",
+    ),
+    (
+        "devops.myWork",
+        "needs a configured live DevOps profile and provider credentials; correlation unit tests \
+         and registry camelCase invoke cover the My Work filter over the same live source",
+    ),
+    (
+        "gitlab.getPipelineJobs",
+        "needs a live GitLab token and project; crate unit tests cover jobs + failure location",
+    ),
+    (
+        "gitlab.getJobTrace",
+        "needs a live GitLab token and job; crate unit tests cover the bounded trace tail",
+    ),
+    (
+        "jenkins.getBuildLog",
+        "needs a live Jenkins credential and job; crate unit tests cover consoleText + failure stage",
+    ),
 ];
 // installKrew, searchPlugins, installPlugin and removePlugin are exercised for
 // real in `toolbox_krew_lifecycle` below — the spec's "real krew bootstrap +
@@ -586,13 +608,6 @@ async fn run_suite() {
     );
     let mut h = Harness::new(reg);
 
-    // === DevOps fixture trace: registry-only, no external connector ========
-    let trace = h
-        .ok("devops.traceIssue", json!({ "issueKey": "OPS-142" }))
-        .await;
-    assert_eq!(trace["nodes"][0]["id"], "jira:OPS-142");
-    assert_eq!(trace["partial"], false);
-
     // === DevOps profiles: durable public config, no credentials ============
     let profiles = h.ok("devops.profiles.list", json!({})).await;
     assert_eq!(profiles["profiles"], json!([]));
@@ -622,6 +637,13 @@ async fn run_suite() {
     assert!(
         refusal.contains("no credential is stored for e2e/jira"),
         "{refusal}"
+    );
+    let detail_refusal = h
+        .err("jira.getIssue", json!({ "issueKey": "OPS-142" }))
+        .await;
+    assert!(
+        detail_refusal.contains("no credential is stored for e2e/jira"),
+        "{detail_refusal}"
     );
 
     // === Durable settings: real file round-trip, isolated from app data ===

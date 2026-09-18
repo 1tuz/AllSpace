@@ -71,5 +71,11 @@ export type { DashboardTone } from "./Dashboard";
 // CodeEditor (CodeMirror) is intentionally NOT re-exported here: a static
 // barrel re-export would pull it into the main bundle and defeat the lazy
 // split. Import it directly from "../ui/CodeEditor" (YamlView does, lazily).
-export { getInitialTheme, applyTheme, resolvedThemeMode, THEME_OPTIONS } from "./theme";
+export {
+  getInitialTheme,
+  applyTheme,
+  resolvedThemeMode,
+  watchSystemTheme,
+  THEME_OPTIONS,
+} from "./theme";
 export type { Theme, ThemeMode, ThemeName, ThemeOption } from "./theme";

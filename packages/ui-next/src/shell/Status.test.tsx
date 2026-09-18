@@ -9,6 +9,7 @@ import { defaultState } from "../lib/tabs";
 import { probeCluster, resetProbes } from "../lib/probe";
 import { resetView } from "../lib/workspace";
 import { lockWorkspace, resetLock } from "./LockGate";
+import { __setVaultPasswordGateEnabledForTests } from "@srelens/core";
 
 // The forwards store is core's, module-level and driven by the backend, so the
 // count is faked at the boundary rather than by starting a real forward. The
@@ -62,6 +63,7 @@ beforeEach(() => {
   helmOps.list = [];
   resetView();
   resetProbes();
+  __setVaultPasswordGateEnabledForTests(true);
   resetLock();
 });
 

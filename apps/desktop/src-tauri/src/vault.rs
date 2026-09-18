@@ -1,10 +1,9 @@
 //! The secrets vault (issue #206): every srelens secret — the MCP HTTP token
 //! and the native agent's provider API keys — lives in ONE encrypted file
-//! (`secrets.enc`), keyed by ONE master key held in a single OS keychain
-//! entry. The app therefore touches the keychain once per launch, for one
-//! item, instead of once per secret per access — which is what made macOS
-//! re-prompt constantly under dev builds (each rebuild changes the ad-hoc
-//! signature, and every keychain item access re-asks).
+//! (`secrets.enc`), keyed by ONE master key held in a 0600 `master.key` file
+//! under the MCP config dir. A leftover OS-keychain copy is migrated once at
+//! open and then deleted — Keychain ACL prompts on every self-signed rebuild
+//! were the previous failure mode.
 //!
 //! File format: `[version: 1 byte][XChaCha20-Poly1305 nonce: 24 bytes][ciphertext]`.
 //! The plaintext is a small JSON [`Secrets`] map. Writes are atomic
@@ -30,7 +29,9 @@ use std::sync::Mutex;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use serde::{Deserialize, Serialize};
-use srelens_devops_profiles::{Credential, CredentialError, CredentialRef, CredentialStore, Provider};
+use srelens_devops_profiles::{
+    Credential, CredentialError, CredentialRef, CredentialStore, Provider,
+};
 
 const SERVICE: &str = "srelens";
 const MASTER_KEY_ACCOUNT: &str = "master-key";
@@ -170,6 +171,42 @@ impl KeychainBackend for RealKeychain {
     }
 }
 
+/// Never talks to the OS keychain. Used after a one-shot migrate so launch
+/// does not raise macOS Keychain ACL prompts (common with self-signed /
+/// ad-hoc desktop builds). The master key lives in `master.key` (0600).
+struct FileOnlyKeychain;
+
+impl KeychainBackend for FileOnlyKeychain {
+    fn get_password(&self) -> Result<String, keyring::Error> {
+        Err(keyring::Error::NoEntry)
+    }
+
+    fn set_password(&self, _value: &str) -> Result<(), keyring::Error> {
+        Err(keyring::Error::NoEntry)
+    }
+}
+
+/// Copy an existing keychain master key into `master.key`, then delete the
+/// keychain item. Best-effort: a refused keychain read leaves the vault on
+/// the old path for this launch's migrate attempt only.
+fn migrate_keychain_master_key_to_file(dir: &Path) {
+    let key_file = dir.join("master.key");
+    if read_key_file(&key_file).is_some() {
+        delete_master_key_from_keychain();
+        return;
+    }
+    let Ok(hex) = RealKeychain.get_password() else {
+        return;
+    };
+    let Some(key) = key_from_hex(&hex) else {
+        return;
+    };
+    let _ = write_exclusive_private(&key_file, to_hex(&key).as_bytes());
+    if read_key_file(&key_file).is_some() {
+        delete_master_key_from_keychain();
+    }
+}
+
 /// The open vault: master key resolved (and cached — the keychain is never
 /// touched again for this process), file path fixed. All access goes through
 /// [`load`](Self::load) / [`update`](Self::update); `update` is a locked
@@ -189,11 +226,13 @@ pub struct Vault {
 }
 
 impl Vault {
-    /// Open the vault under `dir` (`secrets.enc` + the `master.key` fallback
-    /// file), resolving the master key from the real OS keychain. Infallible:
-    /// key persistence is best-effort, and an unreadable vault reads as empty.
+    /// Open the vault under `dir` (`secrets.enc` + the `master.key` file).
+    /// Migrates any leftover OS-keychain master key into the file once, then
+    /// never touches Keychain again — so macOS ACL "Allow / Always Allow"
+    /// prompts do not fire on every launch.
     pub fn open(dir: &Path) -> Vault {
-        Self::with_backend(dir, Box::new(RealKeychain))
+        migrate_keychain_master_key_to_file(dir);
+        Self::with_backend(dir, Box::new(FileOnlyKeychain))
     }
 
     // pub(crate): `vault_password`'s unit tests build vaults over the same

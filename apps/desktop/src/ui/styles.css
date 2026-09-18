@@ -1,4 +1,5 @@
 /* Design-system stylesheet. Imported once via the `ui` barrel. */
+@import "../styles/theme-palettes.css";
 
 :root {
   --mark-red: #f2776c;

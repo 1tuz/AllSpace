@@ -37,7 +37,7 @@ log = "0.4"
 # resolver's formula directly (see `mcp_token_path` in main.rs) so the CLI and
 # the GUI resolve to the same config dir and share one token file.
 dirs = "6"
-tauri = { version = "2.11.3", features = [] }
+tauri = { version = "2.11.3", features = ["macos-private-api"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -103,6 +103,13 @@ tauri-plugin-window-state = "2"
 # exec plugins (kubectl, krew plugins, cloud CLIs) can't be found. This
 # resolves the user's login-shell PATH at startup. No-op on Windows.
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
+
+# Tahoe Liquid Glass / vibrancy (macOS only). Private API flag comes from
+# tauri.conf.json `app.macOSPrivateApi` → tauri-build feature injection.
+[target.'cfg(target_os = "macos")'.dependencies]
+window-vibrancy = "0.8"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["objc2-app-kit", "WKWebView"] }
 
 [dev-dependencies]
 # The "test" feature unlocks tauri::test::mock_app — the unit suites drive

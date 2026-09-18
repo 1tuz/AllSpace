@@ -221,7 +221,15 @@ pub fn build_registry_with_paths_and_settings(
         "health check; echoes the input back as { pong: <input> }",
         |input| async move { Ok(json!({ "pong": input })) },
     ));
-    reg.register(srelens_correlation::trace_issue_capability());
+    reg.register(srelens_correlation::search_capability(
+        srelens_correlation::SearchSourceCaps::default(),
+    ));
+    reg.register(srelens_correlation::list_deliveries_capability(
+        srelens_correlation::ListSourceCaps::default(),
+    ));
+    reg.register(srelens_correlation::my_work_capability(
+        srelens_correlation::ListSourceCaps::default(),
+    ));
 
     reg.register(srelens_kube::contexts::list_contexts_capability(
         cache.clone(),
@@ -372,6 +380,9 @@ pub fn build_registry_with_paths_and_settings(
     ));
     reg.register(srelens_kube::metrics::pod_metrics_capability(cache.clone()));
     reg.register(srelens_kube::pod_count::pod_count_capability(cache.clone()));
+    reg.register(srelens_kube::pod_status_counts::pod_status_counts_capability(
+        cache.clone(),
+    ));
     reg.register(srelens_kube::pod_overview::pod_overview_capability(
         cache.clone(),
     ));
@@ -478,43 +489,84 @@ pub fn build_registry_with_paths_and_settings(
         reg.register(srelens_jira::search_issues_capability(
             credentials.clone(),
             settings_get.clone(),
-            Arc::new(|| Ok(Arc::new(srelens_jira::ReqwestJiraTransport::new()?))),
+            Arc::new(|tls| Ok(Arc::new(srelens_jira::ReqwestJiraTransport::with_tls(&tls)?))),
+        ));
+        reg.register(srelens_jira::get_issue_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|tls| Ok(Arc::new(srelens_jira::ReqwestJiraTransport::with_tls(&tls)?))),
         ));
         reg.register(srelens_gitlab::list_merge_requests_capability(
             credentials.clone(),
             settings_get.clone(),
-            Arc::new(|| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::new()?))),
+            Arc::new(|tls| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::with_tls(&tls)?))),
         ));
         reg.register(srelens_gitlab::list_commits_capability(
             credentials.clone(),
             settings_get.clone(),
-            Arc::new(|| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::new()?))),
+            Arc::new(|tls| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::with_tls(&tls)?))),
         ));
         reg.register(srelens_gitlab::list_pipelines_capability(
             credentials.clone(),
             settings_get.clone(),
-            Arc::new(|| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::new()?))),
+            Arc::new(|tls| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::with_tls(&tls)?))),
+        ));
+        reg.register(srelens_gitlab::list_branches_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|tls| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::with_tls(&tls)?))),
+        ));
+        reg.register(srelens_gitlab::get_pipeline_jobs_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|tls| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::with_tls(&tls)?))),
+        ));
+        reg.register(srelens_gitlab::get_job_trace_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|tls| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::with_tls(&tls)?))),
+        ));
+        reg.register(srelens_gitlab::get_merge_request_diff_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|tls| Ok(Arc::new(srelens_gitlab::ReqwestGitlabTransport::with_tls(&tls)?))),
         ));
         reg.register(srelens_bitbucket::list_pull_requests_capability(
             credentials.clone(),
             settings_get.clone(),
-            Arc::new(|| Ok(Arc::new(srelens_bitbucket::ReqwestBitbucketTransport::new()?))),
+            Arc::new(|tls| Ok(Arc::new(srelens_bitbucket::ReqwestBitbucketTransport::with_tls(&tls)?))),
         ));
         reg.register(srelens_bitbucket::list_commits_capability(
             credentials.clone(),
             settings_get.clone(),
-            Arc::new(|| Ok(Arc::new(srelens_bitbucket::ReqwestBitbucketTransport::new()?))),
+            Arc::new(|tls| Ok(Arc::new(srelens_bitbucket::ReqwestBitbucketTransport::with_tls(&tls)?))),
+        ));
+        reg.register(srelens_bitbucket::list_branches_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|tls| Ok(Arc::new(srelens_bitbucket::ReqwestBitbucketTransport::with_tls(&tls)?))),
+        ));
+        reg.register(srelens_bitbucket::get_pull_request_diff_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|tls| Ok(Arc::new(srelens_bitbucket::ReqwestBitbucketTransport::with_tls(&tls)?))),
         ));
         reg.register(srelens_jenkins::list_builds_capability(
+            credentials.clone(),
+            settings_get.clone(),
+            Arc::new(|tls| Ok(Arc::new(srelens_jenkins::ReqwestJenkinsTransport::with_tls(&tls)?))),
+        ));
+        reg.register(srelens_jenkins::get_build_log_capability(
             credentials,
             settings_get,
-            Arc::new(|| Ok(Arc::new(srelens_jenkins::ReqwestJenkinsTransport::new()?))),
+            Arc::new(|tls| Ok(Arc::new(srelens_jenkins::ReqwestJenkinsTransport::with_tls(&tls)?))),
         ));
+        let jira_search = reg
+            .get("jira.searchIssues")
+            .expect("jira.searchIssues registered")
+            .clone();
         let delivery_sources = srelens_correlation::DeliverySourceCaps {
-            jira_search: reg
-                .get("jira.searchIssues")
-                .expect("jira.searchIssues registered")
-                .clone(),
+            jira_search: jira_search.clone(),
             gitlab_mrs: reg
                 .get("gitlab.listMergeRequests")
                 .expect("gitlab.listMergeRequests registered")
@@ -544,7 +596,44 @@ pub fn build_registry_with_paths_and_settings(
                 .expect("k8s.listDeploymentsByImage registered")
                 .clone(),
         };
+        let search_sources = srelens_correlation::SearchSourceCaps {
+            jira_search: Some(jira_search.clone()),
+            gitlab_mrs: Some(delivery_sources.gitlab_mrs.clone()),
+            gitlab_commits: Some(delivery_sources.gitlab_commits.clone()),
+            gitlab_pipelines: Some(delivery_sources.gitlab_pipelines.clone()),
+            bitbucket_prs: Some(delivery_sources.bitbucket_prs.clone()),
+            bitbucket_commits: Some(delivery_sources.bitbucket_commits.clone()),
+            jenkins_builds: Some(delivery_sources.jenkins_builds.clone()),
+        };
         reg.register(srelens_correlation::trace_delivery_capability(delivery_sources));
+        reg.register(srelens_correlation::search_capability(search_sources));
+        let list_sources = srelens_correlation::ListSourceCaps {
+            jira_search: Some(jira_search),
+            gitlab_mrs: Some(
+                reg.get("gitlab.listMergeRequests")
+                    .expect("gitlab.listMergeRequests registered")
+                    .clone(),
+            ),
+            gitlab_pipelines: Some(
+                reg.get("gitlab.listPipelines")
+                    .expect("gitlab.listPipelines registered")
+                    .clone(),
+            ),
+            bitbucket_prs: Some(
+                reg.get("bitbucket.listPullRequests")
+                    .expect("bitbucket.listPullRequests registered")
+                    .clone(),
+            ),
+            jenkins_builds: Some(
+                reg.get("jenkins.listBuilds")
+                    .expect("jenkins.listBuilds registered")
+                    .clone(),
+            ),
+        };
+        reg.register(srelens_correlation::list_deliveries_capability(
+            list_sources.clone(),
+        ));
+        reg.register(srelens_correlation::my_work_capability(list_sources));
     }
 
     reg
@@ -606,24 +695,76 @@ mod tests {
         assert!(ids.contains(&"ping"));
         assert!(ids.contains(&"k8s.listContexts"));
         assert!(ids.contains(&"k8s.clusterInfo"));
-        assert!(ids.contains(&"devops.traceIssue"));
         assert!(ids.contains(&"devops.traceDelivery"));
+        assert!(ids.contains(&"devops.search"));
+        assert!(ids.contains(&"devops.listDeliveries"));
+        assert!(ids.contains(&"devops.myWork"));
         assert!(ids.contains(&"bitbucket.listPullRequests"));
         assert!(ids.contains(&"jenkins.listBuilds"));
+        assert!(ids.contains(&"gitlab.getPipelineJobs"));
+        assert!(ids.contains(&"gitlab.getJobTrace"));
+        assert!(ids.contains(&"jenkins.getBuildLog"));
     }
 
     #[tokio::test]
-    async fn devops_trace_issue_uses_the_callers_camel_case_payload() {
+    async fn devops_list_deliveries_uses_the_callers_camel_case_payload() {
         let reg = build_registry();
-        let trace = reg
-            .invoke("devops.traceIssue", json!({ "issueKey": "OPS-142" }))
+        let out = reg
+            .invoke(
+                "devops.listDeliveries",
+                json!({ "profileId": "appfarm", "limit": 5 }),
+            )
             .await
-            .expect("fixture trace is available");
+            .expect("listDeliveries");
 
-        assert_eq!(trace["nodes"][0]["id"], "jira:OPS-142");
-        assert!(trace["edges"].as_array().is_some_and(|edges| !edges.is_empty()));
+        assert!(out["deliveries"].as_array().is_some());
+        assert_eq!(out["partial"], true);
+        assert!(out["sourceErrors"].as_array().is_some_and(|e| !e.is_empty()));
         assert!(reg
-            .invoke("devops.traceIssue", json!({ "issue_key": "OPS-142" }))
+            .invoke(
+                "devops.listDeliveries",
+                json!({ "profile_id": "appfarm" }),
+            )
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn devops_my_work_uses_the_callers_camel_case_payload() {
+        let reg = build_registry();
+        let out = reg
+            .invoke("devops.myWork", json!({ "profileId": "komus", "limit": 8 }))
+            .await
+            .expect("myWork");
+
+        assert!(out["deliveries"].as_array().is_some());
+        assert_eq!(out["partial"], true);
+        assert!(reg
+            .invoke("devops.myWork", json!({ "profile_id": "komus" }))
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn devops_search_uses_the_callers_camel_case_payload() {
+        let reg = build_registry();
+        let out = reg
+            .invoke(
+                "devops.search",
+                json!({ "query": "see OPS-142", "profileId": "appfarm" }),
+            )
+            .await
+            .expect("search");
+
+        assert_eq!(out["anchors"][0]["kind"], "issue");
+        assert_eq!(out["anchors"][0]["value"], "OPS-142");
+        assert_eq!(out["partial"], true);
+        assert!(out["sourceErrors"].as_array().is_some_and(|e| !e.is_empty()));
+        assert!(reg
+            .invoke(
+                "devops.search",
+                json!({ "query": "OPS-142", "profile_id": "appfarm" }),
+            )
             .await
             .is_err());
     }
@@ -697,6 +838,7 @@ mod tests {
         for id in ["extensions.catalog", "extensions.catalogManifest", "extensions.list", "extensions.configure", "extensions.validate", "extensions.read"] { assert!(reg.get(id).is_none()); }
         assert!(reg.get("devops.profiles.list").is_none());
         assert!(reg.get("jira.searchIssues").is_none());
+        assert!(reg.get("jira.getIssue").is_none());
         assert!(reg.get("gitlab.listMergeRequests").is_none());
     }
 

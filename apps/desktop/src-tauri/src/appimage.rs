@@ -65,7 +65,10 @@ mod tests {
     #[test]
     fn a_user_set_module_dir_is_left_alone() {
         assert_eq!(
-            gio_module_dir_for_appimage(Some("/tmp/.mount_x/usr/lib/gio/modules"), Some("/opt/gio")),
+            gio_module_dir_for_appimage(
+                Some("/tmp/.mount_x/usr/lib/gio/modules"),
+                Some("/opt/gio")
+            ),
             None,
         );
         // Even an explicitly-empty override is respected, not clobbered.

@@ -53,7 +53,10 @@ pub struct Pending(Mutex<HashMap<String, Waiting>>);
 
 impl Pending {
     pub fn register(&self, id: String, tool: String, args: Value, tx: oneshot::Sender<bool>) {
-        self.0.lock().unwrap().insert(id, Waiting { tx, tool, args });
+        self.0
+            .lock()
+            .unwrap()
+            .insert(id, Waiting { tx, tool, args });
     }
 
     /// Returns false when the id is unknown (already answered or timed out).
@@ -73,7 +76,11 @@ impl Pending {
             .lock()
             .unwrap()
             .iter()
-            .map(|(id, w)| PendingRequest { id: id.clone(), tool: w.tool.clone(), args: w.args.clone() })
+            .map(|(id, w)| PendingRequest {
+                id: id.clone(),
+                tool: w.tool.clone(),
+                args: w.args.clone(),
+            })
             .collect()
     }
 
@@ -115,13 +122,20 @@ impl<R: Runtime> Drop for ResolveOnDrop<R> {
     fn drop(&mut self) {
         use tauri::Emitter;
         self.pending.forget(&self.id);
-        let _ = self.app.emit("mcp://confirm-resolved", serde_json::json!({ "id": self.id }));
+        let _ = self.app.emit(
+            "mcp://confirm-resolved",
+            serde_json::json!({ "id": self.id }),
+        );
     }
 }
 
 impl PromptUser {
     pub fn new(app: tauri::AppHandle, pending: Arc<Pending>, timeout: Duration) -> Self {
-        Self { app, pending, timeout }
+        Self {
+            app,
+            pending,
+            timeout,
+        }
     }
 }
 
@@ -141,20 +155,22 @@ impl ConfirmPolicy for PromptUser {
         // installs its listener and then reads `snapshot` sees this request in
         // one of the two whatever the interleaving, because it is in the map
         // before any event about it exists.
-        self.pending.register(id.clone(), tool.to_string(), args.clone(), tx);
+        self.pending
+            .register(id.clone(), tool.to_string(), args.clone(), tx);
         // The same request is rendered in TWO places — the app-wide modal and
         // the assistant transcript's inline card — and answering in one only
         // clears that one's own queue. This guard broadcasts the resolution on
         // EVERY exit from this function, including cancellation (see its doc),
         // so no stale prompt lingers anywhere and no `Pending` entry leaks.
-        let _cleanup =
-            ResolveOnDrop { app: self.app.clone(), pending: self.pending.clone(), id: id.clone() };
+        let _cleanup = ResolveOnDrop {
+            app: self.app.clone(),
+            pending: self.pending.clone(),
+            id: id.clone(),
+        };
 
         // A dialog behind another window is indistinguishable from a hang.
         let Some(win) = self.app.get_webview_window("main") else {
-            return Decision::Denied(format!(
-                "no window available to confirm `{tool}`"
-            ));
+            return Decision::Denied(format!("no window available to confirm `{tool}`"));
         };
         let _ = win.show();
         let _ = win.unminimize();
@@ -238,8 +254,16 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                PendingRequest { id: "a".into(), tool: "k8s_deletePod".into(), args: json!({ "name": "a" }) },
-                PendingRequest { id: "b".into(), tool: "k8s_scale".into(), args: json!({ "name": "b" }) },
+                PendingRequest {
+                    id: "a".into(),
+                    tool: "k8s_deletePod".into(),
+                    args: json!({ "name": "a" })
+                },
+                PendingRequest {
+                    id: "b".into(),
+                    tool: "k8s_scale".into(),
+                    args: json!({ "name": "b" })
+                },
             ]
         );
     }
@@ -291,9 +315,15 @@ mod tests {
         let _rx = waiting(&pending, "a", "toolA");
         assert_eq!(pending.snapshot().len(), 1);
         {
-            let _cleanup =
-                ResolveOnDrop { app: app.handle().clone(), pending: pending.clone(), id: "a".into() };
+            let _cleanup = ResolveOnDrop {
+                app: app.handle().clone(),
+                pending: pending.clone(),
+                id: "a".into(),
+            };
         }
-        assert!(pending.snapshot().is_empty(), "the dropped guard must forget its entry");
+        assert!(
+            pending.snapshot().is_empty(),
+            "the dropped guard must forget its entry"
+        );
     }
 }

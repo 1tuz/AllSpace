@@ -2,11 +2,9 @@
  * What the console dock says it is asking about, derived from the active route
  * — pure: no React, no store, no I/O.
  *
- * It also held §F's five sets of canned suggestions. Those were removed with
+ * It also held five sets of canned suggestions. Those were removed with
  * the surface that drew them ("remove question not needed, make the dock
  * clean"), and the sets went with it rather than sitting here unread.
- *
- * Design: `docs/superpowers/specs/mock-full-design.md` §F (the agent dock).
  */
 import { parseDetailRoute } from "./detailRoute";
 import { describe } from "./routes";

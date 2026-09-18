@@ -69,7 +69,9 @@ fn index_path(dir: &Path) -> PathBuf {
 /// skill names. Real ids are `startChat`-minted uuids, which pass.
 fn validate_id(id: &str) -> Result<(), String> {
     let ok = !id.is_empty()
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
     if ok {
         Ok(())
     } else {
@@ -92,7 +94,10 @@ fn read_index(dir: &Path) -> Result<Vec<SessionMeta>, String> {
         Ok(raw) => serde_json::from_str(&raw)
             .map_err(|e| format!("corrupt session index {}: {e}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(format!("could not read session index {}: {e}", path.display())),
+        Err(e) => Err(format!(
+            "could not read session index {}: {e}",
+            path.display()
+        )),
     }
 }
 
@@ -161,7 +166,8 @@ fn write_session_atomic(dir: &Path, session: &Session) -> Result<(), String> {
 /// is reported as a clear, id-carrying `Err` rather than a raw IO message.
 fn read_session(dir: &Path, id: &str) -> Result<Session, String> {
     let path = session_path(dir, id)?;
-    let raw = fs::read_to_string(&path).map_err(|_| format!("no chat session found for id {id:?}"))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|_| format!("no chat session found for id {id:?}"))?;
     serde_json::from_str(&raw).map_err(|e| format!("corrupt session {}: {e}", path.display()))
 }
 
@@ -246,7 +252,10 @@ mod tests {
 
     impl TempDir {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!("srelens-assistant-history-test-{}", uuid::Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!(
+                "srelens-assistant-history-test-{}",
+                uuid::Uuid::new_v4()
+            ));
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)
         }
@@ -342,7 +351,11 @@ mod tests {
         save_session(&dir, &updated).unwrap();
 
         let metas = read_index(&dir).unwrap();
-        assert_eq!(metas.len(), 1, "expected the second save to update in place, not duplicate");
+        assert_eq!(
+            metas.len(),
+            1,
+            "expected the second save to update in place, not duplicate"
+        );
         assert_eq!(metas[0].title, "renamed");
         assert_eq!(metas[0].updated_at, 200);
     }
@@ -358,7 +371,11 @@ mod tests {
         save_session(&dir, &sample_session("newest", 300)).unwrap();
         save_session(&dir, &sample_session("oldest", 10)).unwrap();
 
-        let ids: Vec<String> = list_sessions(&dir).unwrap().into_iter().map(|m| m.id).collect();
+        let ids: Vec<String> = list_sessions(&dir)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
         assert_eq!(ids, vec!["newest", "mid", "oldest"]);
     }
 
@@ -371,8 +388,15 @@ mod tests {
 
         delete_session(&dir, "gone").unwrap();
 
-        assert!(!session_path(&dir, "gone").unwrap().exists(), "session file should be removed");
-        let remaining_ids: Vec<String> = read_index(&dir).unwrap().into_iter().map(|m| m.id).collect();
+        assert!(
+            !session_path(&dir, "gone").unwrap().exists(),
+            "session file should be removed"
+        );
+        let remaining_ids: Vec<String> = read_index(&dir)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
         assert_eq!(remaining_ids, vec!["stays"]);
     }
 
@@ -383,7 +407,10 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         let err = read_session(&dir, "does-not-exist").unwrap_err();
-        assert!(err.contains("does-not-exist"), "error should name the missing id, got: {err}");
+        assert!(
+            err.contains("does-not-exist"),
+            "error should name the missing id, got: {err}"
+        );
     }
 
     /// Security: a session id from IPC (or a crafted `index.json` entry) that
@@ -397,11 +424,20 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         for bad in ["../evil", "a/b", "a\\b", "/etc/passwd", "../../secret", ""] {
-            assert!(read_session(&dir, bad).is_err(), "read({bad:?}) must be rejected");
-            assert!(delete_session(&dir, bad).is_err(), "delete({bad:?}) must be rejected");
+            assert!(
+                read_session(&dir, bad).is_err(),
+                "read({bad:?}) must be rejected"
+            );
+            assert!(
+                delete_session(&dir, bad).is_err(),
+                "delete({bad:?}) must be rejected"
+            );
             let mut s = sample_session("valid", 1);
             s.id = bad.to_string();
-            assert!(write_session_atomic(&dir, &s).is_err(), "save({bad:?}) must be rejected");
+            assert!(
+                write_session_atomic(&dir, &s).is_err(),
+                "save({bad:?}) must be rejected"
+            );
         }
         // A normal uuid-shaped id is accepted.
         assert!(session_path(&dir, "0b3e97f0-1234-4abc-9def-000000000000").is_ok());
@@ -418,6 +454,11 @@ mod tests {
         let path = session_path(&dir, &session.id).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         // Transcripts can contain k8s.getSecret output — never world/group readable.
-        assert_eq!(mode & 0o777, 0o600, "saved session must be 0600, got {:o}", mode & 0o777);
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "saved session must be 0600, got {:o}",
+            mode & 0o777
+        );
     }
 }

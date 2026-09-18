@@ -110,13 +110,53 @@ included) so the remaining WebKit processes can only belong to the app under
 test. On Linux the equivalent helpers (`WebKitWebProcess`) are genuine child
 processes and need no special handling.
 
-**Numbers are not published here yet.** Producing figures worth citing requires
-a run this repository has not yet done: release builds of both apps (a debug
-build is not representative), on an otherwise-idle machine, with no stray
-`srelens --mcp-stdio` servers running, in two scenarios — idle, and three
+**Release vs Freelens (idle + active) is still open.** Figures worth citing as
+a product claim need release builds of both apps on an otherwise-idle machine,
+with no stray `srelens --mcp-stdio` servers, in two scenarios — idle, and three
 clusters connected with watches live. Tracked in
 [issue #31](https://github.com/srelens/srelens/issues/31); the size numbers
 above are complete and independent of it.
+
+### Debug-idle method note (2026-09-17)
+
+Darwin arm64, Cursor open on this repo. Signed **debug** bundle
+`target/debug/bundle/macos/srelens.app` (Authority=`srelens Dev Codesign`),
+not a release build. Root match uses exact basename `srelens` (fixed so
+Cursor’s `extension-host … srelens-mvp …` no longer contaminates).
+
+```bash
+open target/debug/bundle/macos/srelens.app
+# tree-only refuses while other launchd WebKit orphans exist (correct):
+scripts/perf/memory-baseline.sh srelens --settle 30
+# machine-wide WebKit union (contaminated on a Cursor workstation):
+scripts/perf/memory-baseline.sh srelens --include com.apple.WebKit --settle 10 --samples 5
+```
+
+If `/Applications/srelens.app` is also installed, Spotlight shows two
+identical entries (same `CFBundleIdentifier`). Prefer measuring from one path
+only, or use `scripts/macos/install-local-app.sh` for the Applications copy
+and keep `target/.metadata_never_index` so the build tree stays unindexed.
+
+| What | Number | Cite as app footprint? |
+| --- | ---: | --- |
+| Tree-only (app root; no children) | **482.2 MiB** median RSS | Yes — attributable debug-idle binary |
+| Correlated WebKit XPC (GPU+WebContent+Networking that appeared with the app) | **145.2 MiB** | Yes, with method caveat below |
+| Attributable debug-idle total | **≈627 MiB** (482 + 145) | Yes — debug only |
+| `--include com.apple.WebKit` script median | **715.9 MiB** | **No** — includes ~89 MiB pre-existing IDE/other WebKit |
+| Idle CPU (`srelens` PID, 20×1s `ps %cpu`) | **0.23%** avg (mostly 0.0; brief spikes ≤3.1) | Yes — PID only |
+
+**Caveats (read before quoting):**
+
+- **Debug, not release.** Optimizations and strip differ; do not compare these
+  numbers to Freelens release RSS.
+- **WebKit XPC has no client in argv / PPID is 1.** Attribution here is by
+  process start correlation (helpers whose `etime` matched the app window),
+  not by the script’s tree walk. On a quiet machine with only srelens’s
+  WebKit left, `--include com.apple.WebKit` is the fair automated total.
+- **Do not cite the 715.9 MiB `--include` median** (or any IDE-contaminated
+  WebKit sum) as srelens’s footprint.
+- **No Freelens side-by-side** and **no active (multi-cluster) scenario** in
+  this run — those remain open performance work / issue #31.
 
 ## Methodology notes
 

@@ -37,6 +37,8 @@ const {
 
 vi.mock("@srelens/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@srelens/core")>()),
+  // Barrel override alone does not reach subscribeSharedKube's starter —
+  // beforeEach wires __setSharedKubeWatchStarterForTests(watchResource).
   watchResource: (...a: unknown[]) => watchResource(...a),
   listCrds: (...a: unknown[]) => listCrds(...a),
   listCustomResource: (...a: unknown[]) => listCustomResource(...a),
@@ -143,6 +145,10 @@ import {
   PEEK_WIDTH_KEY,
   loadPeekWidth,
 } from "../lib/peekWidth";
+import {
+  __resetSharedKubeSubscriptionsForTests,
+  __setSharedKubeWatchStarterForTests,
+} from "@srelens/core";
 import { resetListCache } from "../lib/resourceList";
 import { getView, resetView, setNamespaces } from "../lib/workspace";
 
@@ -196,6 +202,8 @@ let stop: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetSharedKubeSubscriptionsForTests();
+  __setSharedKubeWatchStarterForTests(watchResource);
   stop = vi.fn();
   asked = [];
   watchResource.mockImplementation(

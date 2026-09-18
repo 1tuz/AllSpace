@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { __setVaultPasswordGateEnabledForTests } from "@srelens/core";
 
 const { mcpSecurity } = vi.hoisted(() => ({
   mcpSecurity: {
@@ -16,11 +17,16 @@ import { VaultGate } from "./VaultGate";
 
 // The gate only renders inside a Tauri window.
 beforeEach(() => {
+  __setVaultPasswordGateEnabledForTests(true);
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
   Object.values(mcpSecurity).forEach((m) => m.mockReset());
   mcpSecurity.vaultSetupPassword.mockResolvedValue(undefined);
   mcpSecurity.vaultUnlockPassword.mockResolvedValue(undefined);
   mcpSecurity.vaultBiometricUnlock.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  __setVaultPasswordGateEnabledForTests(null);
 });
 
 const status = (over: Partial<Parameters<typeof mcpSecurity.vaultStatus>[0]> & Record<string, unknown>) => ({

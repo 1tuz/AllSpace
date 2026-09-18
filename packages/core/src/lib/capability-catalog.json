@@ -1,5 +1,19 @@
 [
   {
+    "id": "bitbucket.getPullRequestDiff",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "bitbucket.listBranches",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
     "id": "bitbucket.listCommits",
     "readOnly": true,
     "destructive": false,
@@ -8,6 +22,20 @@
   },
   {
     "id": "bitbucket.listPullRequests",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "devops.listDeliveries",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "devops.myWork",
     "readOnly": true,
     "destructive": false,
     "requiresConfirm": false,
@@ -35,14 +63,14 @@
     "sensitive": false
   },
   {
-    "id": "devops.traceDelivery",
+    "id": "devops.search",
     "readOnly": true,
     "destructive": false,
     "requiresConfirm": false,
     "sensitive": false
   },
   {
-    "id": "devops.traceIssue",
+    "id": "devops.traceDelivery",
     "readOnly": true,
     "destructive": false,
     "requiresConfirm": false,
@@ -105,6 +133,34 @@
     "sensitive": false
   },
   {
+    "id": "gitlab.getJobTrace",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "gitlab.getMergeRequestDiff",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "gitlab.getPipelineJobs",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "gitlab.listBranches",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
     "id": "gitlab.listCommits",
     "readOnly": true,
     "destructive": false,
@@ -126,7 +182,21 @@
     "sensitive": false
   },
   {
+    "id": "jenkins.getBuildLog",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
     "id": "jenkins.listBuilds",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "jira.getIssue",
     "readOnly": true,
     "destructive": false,
     "requiresConfirm": false,
@@ -652,6 +722,13 @@
   },
   {
     "id": "k8s.podOverview",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "k8s.podStatusCounts",
     "readOnly": true,
     "destructive": false,
     "requiresConfirm": false,

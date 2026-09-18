@@ -52,7 +52,13 @@ import {
 
 type NodeRow = NodeSummary & { cpu?: number; memory?: number };
 type PodRow = PodSummary & { cpu?: number; memory?: number };
-import { watchResource, WATCHABLE_KINDS, type WatchHandle, type WatchStatus } from "@srelens/core";
+import {
+  subscribeSharedKube,
+  watchResource,
+  WATCHABLE_KINDS,
+  type WatchHandle,
+  type WatchStatus,
+} from "@srelens/core";
 import type { TabViewState } from "@srelens/core";
 import {
   parseNamespaceSelection,
@@ -487,6 +493,8 @@ export function ResourceBrowser({
   kubeconfigFiles = [],
   view,
   onViewChange,
+  active = true,
+  sharedWatch = true,
 }: {
   context: string;
   kind: ResourceKind;
@@ -526,6 +534,18 @@ export function ResourceBrowser({
    * current context".
    */
   kubeconfigFiles?: string[];
+  /**
+   * When false, stop watches/polls/metrics (hidden / parked view). Classic App
+   * unmounts inactive tabs, which also stops work; pass false when a host
+   * keeps the browser mounted while hidden.
+   */
+  active?: boolean;
+  /**
+   * Use shared kube subscription owner (process-wide dedupe + visibility).
+   * Default true so Classic + Explorer share one watch per key. Pass false to
+   * keep the direct `watchResource` fallback (not retired).
+   */
+  sharedWatch?: boolean;
 }) {
   const { namespaces, scope: nsScope, error: nsError } = useNamespaceOptions(context, kubeconfigFiles);
   // Namespace selection is a set (empty = all namespaces), serialized to/from
@@ -587,6 +607,7 @@ export function ResourceBrowser({
   }, [kind]);
 
   useEffect(() => {
+    if (!active) return;
     if (namespaced && namespaces === null) return; // wait for the namespace list
     let cancelled = false;
     // Only reset the table for a genuinely new view; a poll keeps current rows.
@@ -606,6 +627,33 @@ export function ResourceBrowser({
 
     if (isWatchable(kind)) {
       if (fresh) setWatchStatus("live");
+      if (sharedWatch) {
+        const handle = subscribeSharedKube({
+          context,
+          namespace: watchNamespace,
+          kind,
+          kubeconfigFiles,
+          visible: true,
+          listener: {
+            onRows: (rows) => {
+              if (!cancelled) {
+                setRes({ rows, error: "", loading: false });
+                cacheRows(viewKey, rows);
+              }
+            },
+            onStatus: (status) => {
+              if (!cancelled) setWatchStatus(status);
+            },
+            onError: (err) => {
+              if (!cancelled) setRes({ rows: [], error: err, loading: false });
+            },
+          },
+        });
+        return () => {
+          cancelled = true;
+          handle.unsubscribe();
+        };
+      }
       let handle: WatchHandle | null = null;
       void watchResource(
         context,
@@ -662,28 +710,29 @@ export function ResourceBrowser({
     return () => {
       cancelled = true;
     };
-  }, [context, watchNamespace, kind, namespaced, namespaces, reloadKey]);
+  }, [active, sharedWatch, context, watchNamespace, kind, namespaced, namespaces, reloadKey]);
 
   // Poll non-watchable kinds for a live-updating feel (true watch streams
   // cover pods/deployments/services).
   useEffect(() => {
+    if (!active) return;
     if (isWatchable(kind)) return;
     if (namespaced && namespaces === null) return;
     const t = setInterval(() => setReloadKey((k) => k + 1), POLL_MS);
     return () => clearInterval(t);
-  }, [kind, watchNamespace, namespaced, namespaces, context]);
+  }, [active, kind, watchNamespace, namespaced, namespaces, context]);
 
   // Pods stream over watch (no metrics) — poll pod CPU/memory separately and
   // merge by name. Best-effort: a missing metrics-server just leaves "—".
   useEffect(() => {
-    if (kind !== "pods") {
-      setPodCpuMem(new Map());
+    if (!active || kind !== "pods") {
+      if (kind !== "pods") setPodCpuMem(new Map());
       return;
     }
-    let active = true;
+    let running = true;
     const fetchMetrics = () =>
       void podMetrics(context, watchNamespace).then((o) => {
-        if (!active) return;
+        if (!running) return;
         setPodCpuMem(
           new Map((o.metrics ?? []).map((m) => [m.name, { cpu: m.cpuMillicores, mem: m.memoryMiB }])),
         );
@@ -691,10 +740,10 @@ export function ResourceBrowser({
     fetchMetrics();
     const t = setInterval(fetchMetrics, 10000);
     return () => {
-      active = false;
+      running = false;
       clearInterval(t);
     };
-  }, [kind, context, watchNamespace]);
+  }, [active, kind, context, watchNamespace]);
 
   const columns = useMemo(() => {
     if (kind === "events") return eventColumns as unknown as Column<{ name: string }>[];

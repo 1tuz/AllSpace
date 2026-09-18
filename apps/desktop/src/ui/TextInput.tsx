@@ -8,12 +8,19 @@ export interface TextInputProps {
   onEnter?: () => void;
   /** Called when the user presses Escape. */
   onEscape?: () => void;
+  /** Extra key handling (runs before onEnter / onEscape). */
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   placeholder?: string;
   disabled?: boolean;
   className?: string;
   type?: "text" | "search" | "number" | "password";
   autoFocus?: boolean;
+  role?: string;
   "aria-label"?: string;
+  "aria-controls"?: string;
+  "aria-activedescendant"?: string;
+  "aria-autocomplete"?: "none" | "inline" | "list" | "both";
+  "aria-expanded"?: boolean;
 }
 
 /**
@@ -26,18 +33,26 @@ export function TextInput({
   onValueChange,
   onEnter,
   onEscape,
+  onKeyDown,
   placeholder,
   disabled,
   className,
   type = "text",
   autoFocus,
+  role,
   "aria-label": ariaLabel,
+  "aria-controls": ariaControls,
+  "aria-activedescendant": ariaActiveDescendant,
+  "aria-autocomplete": ariaAutocomplete,
+  "aria-expanded": ariaExpanded,
 }: TextInputProps) {
   return (
     <Input
       value={value}
       onChange={(e) => onValueChange(e.target.value)}
       onKeyDown={(e) => {
+        onKeyDown?.(e);
+        if (e.defaultPrevented) return;
         if (e.key === "Enter" && onEnter) onEnter();
         if (e.key === "Escape" && onEscape) onEscape();
       }}
@@ -46,7 +61,12 @@ export function TextInput({
       type={type}
       autoFocus={autoFocus}
       className={className}
+      role={role}
       aria-label={ariaLabel}
+      aria-controls={ariaControls}
+      aria-activedescendant={ariaActiveDescendant}
+      aria-autocomplete={ariaAutocomplete}
+      aria-expanded={ariaExpanded}
     />
   );
 }

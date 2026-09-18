@@ -3,8 +3,8 @@
 //! This is the Tauri half of "one definition, two surfaces": the same
 //! `Registry` that backs the MCP server is invoked here from the frontend.
 
-use srelens_capability::Registry;
 use serde_json::Value;
+use srelens_capability::Registry;
 use tauri::State;
 
 /// Tauri-managed state holding the capability registry.
@@ -40,9 +40,11 @@ mod tests {
     #[tokio::test]
     async fn passes_values_through_and_flattens_errors() {
         let mut registry = Registry::new();
-        registry.register(Capability::read_only("test.echo", "echo", |input| async move {
-            Ok(json!({ "echoed": input }))
-        }));
+        registry.register(Capability::read_only(
+            "test.echo",
+            "echo",
+            |input| async move { Ok(json!({ "echoed": input })) },
+        ));
         let app = tauri::test::mock_app();
         app.manage(AppRegistry(registry));
 

@@ -42,11 +42,17 @@ pub fn open_vault(master_password: Option<String>) -> Arc<Vault> {
 }
 
 fn seed_session_from_env(store: &SessionCredentials, profile_id: &str) {
-    if let (Ok(user), Ok(secret)) = (std::env::var("JIRA_USERNAME"), std::env::var("JIRA_PASSWORD")) {
+    if let (Ok(user), Ok(secret)) = (
+        std::env::var("JIRA_USERNAME"),
+        std::env::var("JIRA_PASSWORD"),
+    ) {
         if !secret.is_empty() {
             let _ = store.remember(
                 &CredentialRef::new(profile_id, Provider::Jira),
-                Credential { username: user, secret },
+                Credential {
+                    username: user,
+                    secret,
+                },
             );
         }
     }
@@ -72,13 +78,17 @@ fn seed_session_from_env(store: &SessionCredentials, profile_id: &str) {
             );
         }
     }
-    if let (Ok(user), Ok(secret)) =
-        (std::env::var("JENKINS_USERNAME"), std::env::var("JENKINS_PASSWORD"))
-    {
+    if let (Ok(user), Ok(secret)) = (
+        std::env::var("JENKINS_USERNAME"),
+        std::env::var("JENKINS_PASSWORD"),
+    ) {
         if !secret.is_empty() {
             let _ = store.remember(
                 &CredentialRef::new(profile_id, Provider::Jenkins),
-                Credential { username: user, secret },
+                Credential {
+                    username: user,
+                    secret,
+                },
             );
         }
     }
@@ -110,9 +120,8 @@ pub fn headless_credentials(vault: Arc<Vault>) -> Arc<dyn CredentialStore> {
 
 /// Registry + credential store for headless devops / MCP.
 pub fn headless_registry(vault: Arc<Vault>) -> Registry {
-    let cache = srelens_kube::client_cache::ClientCache::new_many(
-        srelens_registry::all_kubeconfig_paths(),
-    );
+    let cache =
+        srelens_kube::client_cache::ClientCache::new_many(srelens_registry::all_kubeconfig_paths());
     crate::capabilities::build_registry_with_paths_and_settings(
         cache,
         crate::capabilities::default_kubeconfig_paths(),
@@ -166,14 +175,14 @@ async fn dispatch(registry: &Registry, store: &dyn CredentialStore, args: &[Stri
 }
 
 async fn invoke(registry: &Registry, id: &str, input: Value) -> Result<Value, String> {
-    registry
-        .invoke(id, input)
-        .await
-        .map_err(|e| e.to_string())
+    registry.invoke(id, input).await.map_err(|e| e.to_string())
 }
 
 fn print_json(value: &Value) {
-    println!("{}", serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
+    );
 }
 
 async fn profiles(registry: &Registry, args: &[String]) -> i32 {
@@ -193,7 +202,13 @@ async fn profiles(registry: &Registry, args: &[String]) -> i32 {
                 eprintln!("usage: srelens devops profiles select <profileId>");
                 return 2;
             };
-            match invoke(registry, "devops.profiles.select", json!({ "profileId": id })).await {
+            match invoke(
+                registry,
+                "devops.profiles.select",
+                json!({ "profileId": id }),
+            )
+            .await
+            {
                 Ok(v) => {
                     print_json(&v);
                     0
@@ -222,6 +237,7 @@ async fn upsert_profile(registry: &Registry, args: &[String]) -> i32 {
     let mut bitbucket_projects: Vec<String> = Vec::new();
     let mut jenkins = None;
     let mut jenkins_jobs: Vec<String> = Vec::new();
+    let mut allow_insecure = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -267,6 +283,10 @@ async fn upsert_profile(registry: &Registry, args: &[String]) -> i32 {
                 }
                 i += 2;
             }
+            "--allow-insecure" => {
+                allow_insecure = true;
+                i += 1;
+            }
             other => {
                 eprintln!("unknown flag: {other}");
                 return 2;
@@ -274,7 +294,7 @@ async fn upsert_profile(registry: &Registry, args: &[String]) -> i32 {
         }
     }
     let (Some(id), Some(label)) = (id, label) else {
-        eprintln!("usage: srelens devops profiles upsert --id ID --label LABEL [--jira URL] [--gitlab URL] …");
+        eprintln!("usage: srelens devops profiles upsert --id ID --label LABEL [--jira URL] [--gitlab URL] … [--allow-insecure]");
         return 2;
     };
     let mut providers = Vec::new();
@@ -314,8 +334,14 @@ async fn upsert_profile(registry: &Registry, args: &[String]) -> i32 {
         eprintln!("provide at least one of --jira / --gitlab / --bitbucket / --jenkins");
         return 2;
     }
+    let mut profile = json!({ "id": id, "label": label, "providers": providers });
+    if allow_insecure {
+        if let Some(obj) = profile.as_object_mut() {
+            obj.insert("tls".into(), json!({ "allowInsecure": true }));
+        }
+    }
     let input = json!({
-        "profile": { "id": id, "label": label, "providers": providers },
+        "profile": profile,
         "select": true
     });
     match invoke(registry, "devops.profiles.upsert", input).await {
@@ -335,85 +361,58 @@ async fn trace(registry: &Registry, args: &[String]) -> i32 {
         Ok(input) => input,
         Err(error) => {
             eprintln!("{error}");
-            eprintln!("usage: srelens devops trace <issueKey> [--kube-context CONTEXT] [--namespace NAME]…");
+            eprintln!(
+                "usage: srelens devops trace <issueKey|anchorValue> [--anchor-kind KIND] [--kube-context CONTEXT] [--namespace NAME]…"
+            );
             return 2;
         }
     };
-    let Some(key) = args.first() else {
-        eprintln!("usage: srelens devops trace <issueKey> [--kube-context CONTEXT] [--namespace NAME]…");
-        return 2;
-    };
-    let live = invoke(registry, "devops.traceDelivery", input).await;
-    match live {
-        Ok(v) if v.get("nodes").and_then(|n| n.as_array()).is_some_and(|n| !n.is_empty()) => {
+    match invoke(registry, "devops.traceDelivery", input).await {
+        Ok(v) => {
             print_json(&v);
             0
         }
-        Ok(partial) => match invoke(registry, "devops.traceIssue", json!({ "issueKey": key })).await {
-            Ok(fixture)
-                if fixture
-                    .get("nodes")
-                    .and_then(|n| n.as_array())
-                    .is_some_and(|n| !n.is_empty()) =>
-            {
-                // Keep live sourceErrors on the fixture so "partial" stays honest.
-                let mut out = fixture;
-                if let Some(obj) = out.as_object_mut() {
-                    if let Some(errors) = partial.get("sourceErrors") {
-                        obj.insert("sourceErrors".into(), errors.clone());
-                    }
-                    if partial.get("partial") == Some(&json!(true))
-                        || partial
-                            .get("sourceErrors")
-                            .and_then(|e| e.as_array())
-                            .is_some_and(|e| !e.is_empty())
-                    {
-                        obj.insert("partial".into(), json!(true));
-                    }
-                }
-                print_json(&out);
-                0
-            }
-            Ok(_) => {
-                print_json(&partial);
-                0
-            }
-            Err(e) => {
-                eprintln!("devops.traceIssue fallback failed: {e}");
-                print_json(&partial);
-                0
-            }
-        },
-        Err(e) => match invoke(registry, "devops.traceIssue", json!({ "issueKey": key })).await {
-            Ok(v) => {
-                print_json(&v);
-                0
-            }
-            Err(_) => {
-                eprintln!("devops.traceDelivery failed: {e}");
-                1
-            }
-        },
+        Err(e) => {
+            eprintln!("devops.traceDelivery failed: {e}");
+            1
+        }
     }
 }
 
 fn trace_input(args: &[String]) -> Result<Value, String> {
-    let issue_key = args.first().filter(|key| !key.starts_with("--"))
-        .ok_or("an issue key is required")?;
+    let value = args
+        .first()
+        .filter(|key| !key.starts_with("--"))
+        .ok_or("an issue key or anchor value is required")?;
     let mut kube_context = None;
     let mut namespaces = Vec::new();
+    let mut anchor_kind = "issue".to_string();
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
+            "--anchor-kind" => {
+                anchor_kind = args
+                    .get(index + 1)
+                    .cloned()
+                    .filter(|value| !value.is_empty())
+                    .ok_or("--anchor-kind needs a kind")?;
+                index += 2;
+            }
             "--kube-context" => {
-                kube_context = args.get(index + 1).cloned().filter(|value| !value.is_empty());
+                kube_context = args
+                    .get(index + 1)
+                    .cloned()
+                    .filter(|value| !value.is_empty());
                 if kube_context.is_none() {
                     return Err("--kube-context needs a context name".into());
                 }
                 index += 2;
             }
             "--namespace" => {
-                let namespace = args.get(index + 1).cloned().filter(|value| !value.is_empty())
+                let namespace = args
+                    .get(index + 1)
+                    .cloned()
+                    .filter(|value| !value.is_empty())
                     .ok_or("--namespace needs a namespace")?;
                 namespaces.push(namespace);
                 index += 2;
@@ -421,11 +420,18 @@ fn trace_input(args: &[String]) -> Result<Value, String> {
             flag => return Err(format!("unknown trace option: {flag}")),
         }
     }
-    Ok(json!({
-        "issueKey": issue_key,
+    let mut input = json!({
+        "anchor": { "kind": anchor_kind, "value": value },
         "kubeContext": kube_context,
         "namespaces": namespaces,
-    }))
+    });
+    // Legacy issueKey retained for issue anchors during rollout.
+    if anchor_kind == "issue" {
+        if let Some(obj) = input.as_object_mut() {
+            obj.insert("issueKey".into(), json!(value));
+        }
+    }
+    Ok(input)
 }
 
 async fn jira(registry: &Registry, args: &[String]) -> i32 {
@@ -459,8 +465,9 @@ async fn gitlab(registry: &Registry, args: &[String]) -> i32 {
         Some("mrs") | Some("merge-requests") => "gitlab.listMergeRequests",
         Some("commits") => "gitlab.listCommits",
         Some("pipelines") => "gitlab.listPipelines",
+        Some("branches") => "gitlab.listBranches",
         _ => {
-            eprintln!("usage: srelens devops gitlab <mrs|commits|pipelines>");
+            eprintln!("usage: srelens devops gitlab <mrs|commits|pipelines|branches>");
             return 2;
         }
     };
@@ -476,11 +483,7 @@ async fn gitlab(registry: &Registry, args: &[String]) -> i32 {
     }
 }
 
-async fn credentials_cmd(
-    store: &dyn CredentialStore,
-    registry: &Registry,
-    args: &[String],
-) -> i32 {
+async fn credentials_cmd(store: &dyn CredentialStore, registry: &Registry, args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
         Some("status") => {
             let refs = store.configured();
@@ -499,11 +502,7 @@ async fn credentials_cmd(
     }
 }
 
-async fn set_from_env(
-    store: &dyn CredentialStore,
-    registry: &Registry,
-    args: &[String],
-) -> i32 {
+async fn set_from_env(store: &dyn CredentialStore, registry: &Registry, args: &[String]) -> i32 {
     let mut profile = None;
     let mut i = 0;
     while i < args.len() {
@@ -526,21 +525,33 @@ async fn set_from_env(
     // Credential import must not broaden a profile that was already scoped in
     // Settings. Empty env filter variables mean “keep the saved boundary”,
     // not “scan every project visible to this token”.
-    let profiles = invoke(registry, "devops.profiles.list", json!({})).await.ok();
+    // Also preserve label + tls: wiping `allowInsecure` here is why AppFarm
+    // Jira then failed TLS against the private CA after a fresh set-from-env.
+    let profiles = invoke(registry, "devops.profiles.list", json!({}))
+        .await
+        .ok();
+    let profiles_value = profiles.unwrap_or(Value::Null);
+    let existing = profile_entry(&profiles_value, &profile_id);
+    let label = existing
+        .and_then(|profile| profile.get("label"))
+        .and_then(|value| value.as_str())
+        .unwrap_or(profile_id.as_str())
+        .to_owned();
+    let tls = existing.and_then(|profile| profile.get("tls").cloned());
     let gitlab_filters = profile_filters(
-        profiles.as_ref().unwrap_or(&Value::Null),
+        &profiles_value,
         &profile_id,
         "gitlab",
         env_csv("GITLAB_PROJECTS"),
     );
     let bitbucket_filters = profile_filters(
-        profiles.as_ref().unwrap_or(&Value::Null),
+        &profiles_value,
         &profile_id,
         "bitbucketDc",
         env_csv("BITBUCKET_PROJECTS"),
     );
     let jenkins_filters = profile_filters(
-        profiles.as_ref().unwrap_or(&Value::Null),
+        &profiles_value,
         &profile_id,
         "jenkins",
         env_csv("JENKINS_JOBS"),
@@ -565,14 +576,14 @@ async fn set_from_env(
         let _ = invoke(
             registry,
             "devops.profiles.upsert",
-            json!({
-                "profile": { "id": profile_id, "label": profile_id, "providers": providers },
-                "select": true
-            }),
+            profile_upsert_payload(&profile_id, &label, providers, tls.clone()),
         )
         .await;
     }
-    if let (Ok(bb), Ok(_)) = (std::env::var("BITBUCKET_URL"), std::env::var("BITBUCKET_TOKEN")) {
+    if let (Ok(bb), Ok(_)) = (
+        std::env::var("BITBUCKET_URL"),
+        std::env::var("BITBUCKET_TOKEN"),
+    ) {
         let mut providers = vec![json!({
             "provider": "bitbucketDc",
             "baseUrl": bb.trim_end_matches('/'),
@@ -590,20 +601,23 @@ async fn set_from_env(
         let _ = invoke(
             registry,
             "devops.profiles.upsert",
-            json!({
-                "profile": { "id": profile_id, "label": profile_id, "providers": providers },
-                "select": true
-            }),
+            profile_upsert_payload(&profile_id, &label, providers, tls),
         )
         .await;
     }
 
     let mut saved = Vec::new();
-    if let (Ok(user), Ok(secret)) = (std::env::var("JIRA_USERNAME"), std::env::var("JIRA_PASSWORD")) {
+    if let (Ok(user), Ok(secret)) = (
+        std::env::var("JIRA_USERNAME"),
+        std::env::var("JIRA_PASSWORD"),
+    ) {
         if !secret.is_empty() {
             if let Err(e) = store.remember(
                 &CredentialRef::new(&profile_id, Provider::Jira),
-                Credential { username: user, secret },
+                Credential {
+                    username: user,
+                    secret,
+                },
             ) {
                 eprintln!("jira credential: {e}");
                 return 1;
@@ -641,13 +655,17 @@ async fn set_from_env(
             saved.push("bitbucketDc");
         }
     }
-    if let (Ok(user), Ok(secret)) =
-        (std::env::var("JENKINS_USERNAME"), std::env::var("JENKINS_PASSWORD"))
-    {
+    if let (Ok(user), Ok(secret)) = (
+        std::env::var("JENKINS_USERNAME"),
+        std::env::var("JENKINS_PASSWORD"),
+    ) {
         if !secret.is_empty() {
             if let Err(e) = store.remember(
                 &CredentialRef::new(&profile_id, Provider::Jenkins),
-                Credential { username: user, secret },
+                Credential {
+                    username: user,
+                    secret,
+                },
             ) {
                 eprintln!("jenkins credential: {e}");
                 return 1;
@@ -657,7 +675,9 @@ async fn set_from_env(
     }
 
     if saved.is_empty() {
-        eprintln!("no recognized credential env vars set (JIRA_*/GITLAB_TOKEN/BITBUCKET_TOKEN/JENKINS_*)");
+        eprintln!(
+            "no recognized credential env vars set (JIRA_*/GITLAB_TOKEN/BITBUCKET_TOKEN/JENKINS_*)"
+        );
         return 1;
     }
     print_json(&json!({ "profileId": profile_id, "savedProviders": saved }));
@@ -673,13 +693,14 @@ fn profile_filters(
     if !from_env.is_empty() {
         return from_env;
     }
-    profiles
-        .get("profiles")
-        .and_then(Value::as_array)
-        .and_then(|profiles| profiles.iter().find(|profile| profile.get("id") == Some(&json!(profile_id))))
+    profile_entry(profiles, profile_id)
         .and_then(|profile| profile.get("providers"))
         .and_then(Value::as_array)
-        .and_then(|providers| providers.iter().find(|item| item.get("provider") == Some(&json!(provider))))
+        .and_then(|providers| {
+            providers
+                .iter()
+                .find(|item| item.get("provider") == Some(&json!(provider)))
+        })
         .and_then(|item| item.get("projectFilters"))
         .and_then(Value::as_array)
         .map(|filters| {
@@ -690,6 +711,36 @@ fn profile_filters(
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn profile_entry<'a>(profiles: &'a Value, profile_id: &str) -> Option<&'a Value> {
+    profiles
+        .get("profiles")
+        .and_then(Value::as_array)
+        .and_then(|profiles| {
+            profiles
+                .iter()
+                .find(|profile| profile.get("id") == Some(&json!(profile_id)))
+        })
+}
+
+fn profile_upsert_payload(
+    profile_id: &str,
+    label: &str,
+    providers: Vec<Value>,
+    tls: Option<Value>,
+) -> Value {
+    let mut profile = json!({
+        "id": profile_id,
+        "label": label,
+        "providers": providers
+    });
+    if let Some(tls) = tls {
+        if let Some(obj) = profile.as_object_mut() {
+            obj.insert("tls".into(), tls);
+        }
+    }
+    json!({ "profile": profile, "select": true })
 }
 
 fn env_csv(name: &str) -> Vec<String> {
@@ -714,10 +765,10 @@ Usage:
   srelens devops profiles select <profileId>
   srelens devops profiles upsert --id ID --label LABEL [--jira URL] [--gitlab URL] \\
       [--gitlab-project PATH]… [--bitbucket URL] [--bitbucket-project KEY]… \\
-      [--jenkins URL] [--jenkins-job PATH]…
-  srelens devops trace <issueKey> [--kube-context CONTEXT] [--namespace NAME]…
+      [--jenkins URL] [--jenkins-job PATH]… [--allow-insecure]
+  srelens devops trace <issueKey|anchorValue> [--anchor-kind KIND] [--kube-context CONTEXT] [--namespace NAME]…
   srelens devops jira search <ISSUE> [ISSUE…]
-  srelens devops gitlab <mrs|commits|pipelines>
+  srelens devops gitlab <mrs|commits|pipelines|branches>
   srelens devops credentials status
   srelens devops credentials set-from-env --profile <id>
 
@@ -751,11 +802,31 @@ mod tests {
         assert_eq!(
             trace_input(&args).unwrap(),
             json!({
+                "anchor": { "kind": "issue", "value": "AFS-28457" },
                 "issueKey": "AFS-28457",
                 "kubeContext": "devstbl",
                 "namespaces": ["appfarm"],
             })
         );
+    }
+
+    #[test]
+    fn trace_input_accepts_pull_request_anchor_without_issue_key() {
+        let args = vec!["8821".into(), "--anchor-kind".into(), "pullRequest".into()];
+        assert_eq!(
+            trace_input(&args).unwrap(),
+            json!({
+                "anchor": { "kind": "pullRequest", "value": "8821" },
+                "kubeContext": null,
+                "namespaces": [],
+            })
+        );
+    }
+
+    #[test]
+    fn trace_input_rejects_removed_demo_option() {
+        let args = vec!["OPS-142".into(), "--demo".into()];
+        assert!(trace_input(&args).is_err());
     }
 
     #[test]

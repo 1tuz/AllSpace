@@ -5,11 +5,11 @@ import type { LogLine } from "./logBuffer";
 const line = (text: string, source = ""): LogLine => ({ source, text });
 
 describe("tallyLogTerms", () => {
-  it("recovers 'pool timeout' from the design's sample line and its siblings", () => {
-    // Verbatim message from docs/superpowers/specs/mock-full-design.md §15,
-    // repeated with a different wait, pool size, in-use count and route each
-    // time — the parts a real pool-timeout error always varies — and an
-    // "error" level word out front, as a real raw line would carry.
+  it("recovers 'pool timeout' from a sample error line and its siblings", () => {
+    // Sample pool-timeout line, repeated with a different wait, pool size,
+    // in-use count and route each time — the parts a real pool-timeout error
+    // always varies — and an "error" level word out front, as a real raw line
+    // would carry.
     const lines = [
       line(
         "error pool timeout waited=30.0s pool_size=5 in_use=5 route=POST /v2/checkout/authorize",

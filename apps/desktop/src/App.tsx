@@ -593,6 +593,10 @@ export function App() {
     setTheme((current) => ({ ...current, name }));
   }
 
+  function setLiquidGlass(liquidGlass: boolean) {
+    setTheme((current) => ({ ...current, liquidGlass }));
+  }
+
   function toggleThemeMode() {
     setTheme((current) => ({
       ...current,
@@ -1062,6 +1066,7 @@ export function App() {
                       theme={theme}
                       onThemeNameChange={setThemeName}
                       onThemeModeChange={setThemeMode}
+                      onLiquidGlassChange={setLiquidGlass}
                       defaultNamespace={defaultNs}
                       onDefaultNamespaceChange={changeDefaultNamespace}
                       layout={layout}
@@ -1169,6 +1174,7 @@ export function App() {
                       onNamespaceChange={(ns) => setTabNamespace(activeTab.id, activeCluster, ns)}
                       detailDrawerWidth={layout.rightSidebarWidth}
                       kubeconfigFiles={kubeconfigFiles}
+                      sharedWatch
                     />
                   ) : (
                     <LandingPage

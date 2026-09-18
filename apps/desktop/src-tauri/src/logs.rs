@@ -99,7 +99,11 @@ mod tests {
         .await
         .unwrap();
 
-        stop_log_stream("logs:test".into(), app.state()).await.unwrap();
-        stop_log_stream("logs:unknown".into(), app.state()).await.unwrap();
+        stop_log_stream("logs:test".into(), app.state())
+            .await
+            .unwrap();
+        stop_log_stream("logs:unknown".into(), app.state())
+            .await
+            .unwrap();
     }
 }

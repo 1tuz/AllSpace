@@ -58,7 +58,11 @@ fn summaries(lib: &PromptLibrary) -> Vec<PromptSummary> {
 /// client deciding whether to show the prompt at all, which the slash menu
 /// already did via `summaries`. Unknown name (or any other rejection from
 /// `PromptLibrary::get`, e.g. a required arg that's missing) surfaces as-is.
-fn render_prompt(lib: &PromptLibrary, name: &str, args: HashMap<String, String>) -> Result<String, String> {
+fn render_prompt(
+    lib: &PromptLibrary,
+    name: &str,
+    args: HashMap<String, String>,
+) -> Result<String, String> {
     let supplied: BTreeMap<String, String> = args.into_iter().collect();
     lib.get(name, &supplied).map(|rendered| rendered.text)
 }
@@ -80,7 +84,11 @@ pub fn assistant_prompt_get(
     args: HashMap<String, String>,
     prompts_dir: tauri::State<'_, crate::mcp::McpPromptsDir>,
 ) -> Result<String, String> {
-    render_prompt(&PromptLibrary::new(Some(prompts_dir.0.clone())), &name, args)
+    render_prompt(
+        &PromptLibrary::new(Some(prompts_dir.0.clone())),
+        &name,
+        args,
+    )
 }
 
 #[cfg(test)]
@@ -106,7 +114,10 @@ mod tests {
             .iter()
             .find(|a| a.name == "context")
             .expect("pod-crashloop declares a `context` argument");
-        assert!(context_arg.required, "`context` is required on every variant of pod-crashloop");
+        assert!(
+            context_arg.required,
+            "`context` is required on every variant of pod-crashloop"
+        );
     }
 
     #[test]
@@ -115,7 +126,8 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("context".to_string(), "my-cluster".to_string());
 
-        let text = render_prompt(&lib, "pod-crashloop", args).expect("pod-crashloop should render with `context` supplied");
+        let text = render_prompt(&lib, "pod-crashloop", args)
+            .expect("pod-crashloop should render with `context` supplied");
         assert!(!text.is_empty());
     }
 
@@ -129,6 +141,9 @@ mod tests {
         let err = render_prompt(&lib, "not-a-real-prompt", HashMap::new())
             .expect_err("an unknown prompt name should be rejected");
         assert!(!err.is_empty());
-        assert_ne!(err, ok_text, "the error path must not coincide with a real rendered prompt");
+        assert_ne!(
+            err, ok_text,
+            "the error path must not coincide with a real rendered prompt"
+        );
     }
 }

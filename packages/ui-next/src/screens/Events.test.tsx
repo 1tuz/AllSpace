@@ -15,6 +15,8 @@ const { watchResource, useNamespaceOptions } = vi.hoisted(() => ({
 
 vi.mock("@srelens/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@srelens/core")>()),
+  // Barrel override alone does not reach subscribeSharedKube's starter —
+  // beforeEach wires __setSharedKubeWatchStarterForTests(watchResource).
   watchResource: (...a: unknown[]) => watchResource(...a),
 }));
 
@@ -38,7 +40,11 @@ proto.hasPointerCapture ??= () => false;
 proto.setPointerCapture ??= () => {};
 proto.releasePointerCapture ??= () => {};
 
-import type { ClusterContext } from "@srelens/core";
+import {
+  type ClusterContext,
+  __resetSharedKubeSubscriptionsForTests,
+  __setSharedKubeWatchStarterForTests,
+} from "@srelens/core";
 import { Events } from "./Events";
 import { ConsoleProvider, useConsole } from "../console";
 import { resetContexts, setContexts, setKubeconfigFiles } from "../lib/clusters";
@@ -124,6 +130,8 @@ let initialRows: unknown[] | null;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetSharedKubeSubscriptionsForTests();
+  __setSharedKubeWatchStarterForTests(watchResource);
   asked = [];
   initialRows = EVENTS;
   watchResource.mockImplementation(

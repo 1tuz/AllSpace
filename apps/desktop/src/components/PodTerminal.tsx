@@ -13,6 +13,7 @@ export function PodTerminal({
   pod,
   container,
   command,
+  active = true,
 }: {
   context: string;
   namespace: string;
@@ -21,6 +22,8 @@ export function PodTerminal({
   container?: string;
   /** Override the exec command (e.g. the node shell's `nsenter …`). */
   command?: string[];
+  /** When false (inactive Dock tab), close the live exec session. */
+  active?: boolean;
 }) {
   const driver = useMemo(
     () =>
@@ -36,5 +39,5 @@ export function PodTerminal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [context, namespace, pod, container, command?.join(" ")],
   );
-  return <TerminalPane driver={driver} />;
+  return <TerminalPane driver={driver} active={active} />;
 }

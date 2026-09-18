@@ -40,12 +40,19 @@ pub struct VaultBiometricStatus {
 }
 
 fn data_options() -> DataOptions {
-    DataOptions { domain: BIO_DOMAIN.to_string(), name: BIO_NAME.to_string() }
+    DataOptions {
+        domain: BIO_DOMAIN.to_string(),
+        name: BIO_NAME.to_string(),
+    }
 }
 
 pub(crate) fn vault_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
-    Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("mcp"))
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("mcp"))
 }
 
 /// Sensor availability + gate state. Never hard-fails: a plugin/platform
@@ -55,9 +62,19 @@ pub async fn vault_biometric_status(
     app: tauri::AppHandle,
     vault: tauri::State<'_, Arc<Vault>>,
 ) -> Result<VaultBiometricStatus, String> {
-    let available = app.biometry().status().map(|s| s.is_available).unwrap_or(false);
-    let enabled = vault_dir(&app).map(|d| vault::biometric_marker_path(&d).exists()).unwrap_or(false);
-    Ok(VaultBiometricStatus { available, enabled, unlocked: vault.current_key().is_some() })
+    let available = app
+        .biometry()
+        .status()
+        .map(|s| s.is_available)
+        .unwrap_or(false);
+    let enabled = vault_dir(&app)
+        .map(|d| vault::biometric_marker_path(&d).exists())
+        .unwrap_or(false);
+    Ok(VaultBiometricStatus {
+        available,
+        enabled,
+        unlocked: vault.current_key().is_some(),
+    })
 }
 
 /// Turn the gate ON: move the cached master key into the biometric store.
@@ -134,7 +151,11 @@ pub async fn vault_biometric_disable(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.to_string()),
     }
-    vault.set_key_source(if password_mode { "password" } else { "keychain" });
+    vault.set_key_source(if password_mode {
+        "password"
+    } else {
+        "keychain"
+    });
     Ok(())
 }
 
@@ -210,6 +231,8 @@ pub async fn vault_biometric_unlock(
         })?;
     vault.unlock_with(key, "biometric").map_err(|e| {
         purge(&app);
-        format!("{e} — the stale biometric item was removed; later launches fall back to the password")
+        format!(
+            "{e} — the stale biometric item was removed; later launches fall back to the password"
+        )
     })
 }

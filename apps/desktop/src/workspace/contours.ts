@@ -17,10 +17,22 @@ export interface ContourPreset {
   id: ContourId;
   label: string;
   summary: string;
+  /**
+   * Absolute sibling `.env` path for developers / docs.
+   * Never render in ordinary product UI — use {@link contourEnvKeyLabels}.
+   */
   credentialEnvFile: string;
+  /** Absolute kubeconfig directory — developer-facing; hide from ordinary product UI. */
   kubeconfigDir: string;
   kubeconfigHints: string[];
   providers: ContourProviderPreset[];
+  /** Explicit TLS posture for private-CA corporate endpoints. */
+  tls?: { allowInsecure?: boolean; caBundlePath?: string };
+}
+
+/** Env key names for product copy — never the absolute credentialEnvFile path. */
+export function contourEnvKeyLabels(contour: ContourPreset): string[] {
+  return [...new Set(contour.providers.flatMap((p) => p.envKeys))];
 }
 
 export const CONTOUR_PRESETS: ContourPreset[] = [
@@ -31,6 +43,8 @@ export const CONTOUR_PRESETS: ContourPreset[] = [
     credentialEnvFile: "/Users/antony/Documents/projects/AppFarm/scripts/daily-reports-master/.env",
     kubeconfigDir: "/Users/antony/Documents/projects/AppFarm/ops/kubeconfigs",
     kubeconfigHints: ["cpstbl.yaml", "devstbl.yaml", "rcsdstbl.yaml", "apistbl.yaml", "infrastbl.yaml", "cpdev.yaml"],
+    // Private corporate CA — explicit escape hatch until a CA PEM path is configured.
+    tls: { allowInsecure: true },
     providers: [
       {
         provider: "jira",
@@ -57,6 +71,7 @@ export const CONTOUR_PRESETS: ContourPreset[] = [
     credentialEnvFile: "/Users/antony/Documents/projects/komus/.ai/mcp/mcp.env",
     kubeconfigDir: "/Users/antony/Documents/projects/komus/kubeconfigs",
     kubeconfigHints: ["dev.yaml", "stage.yaml", "uat.yaml", "prod.yaml", "qa.yaml"],
+    tls: { allowInsecure: true },
     providers: [
       {
         provider: "bitbucketDc",
@@ -80,4 +95,19 @@ export const CONTOUR_PRESETS: ContourPreset[] = [
 
 export function contourById(id: string): ContourPreset | undefined {
   return CONTOUR_PRESETS.find((c) => c.id === id);
+}
+
+/** Absolute kubeconfig files for a contour — hints under kubeconfigDir. */
+export function contourKubeconfigPaths(contour: ContourPreset): string[] {
+  const dir = contour.kubeconfigDir.replace(/\/+$/, "");
+  return contour.kubeconfigHints.map((name) => `${dir}/${name}`);
+}
+
+/** Resolve the public contour preset for a DevOps profile id/label. */
+export function contourPresetForProfile(profile: { id: string; label: string } | null | undefined): ContourPreset | undefined {
+  if (!profile) return undefined;
+  const blob = `${profile.id} ${profile.label}`.toLowerCase();
+  if (blob.includes("komus")) return contourById("komus");
+  if (blob.includes("appfarm") || blob.includes("afs")) return contourById("appfarm");
+  return undefined;
 }

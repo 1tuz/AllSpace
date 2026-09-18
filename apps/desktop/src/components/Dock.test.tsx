@@ -3,11 +3,30 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 
 vi.mock("./PodTerminal", () => ({
-  PodTerminal: ({ pod }: { pod: string }) => <div data-testid="terminal">{pod}</div>,
+  PodTerminal: ({ pod, active }: { pod: string; active?: boolean }) => (
+    <div data-testid="terminal" data-active={active === false ? "false" : "true"}>
+      {pod}
+    </div>
+  ),
+}));
+vi.mock("./LocalTerminal", () => ({
+  LocalTerminal: ({ context, active }: { context: string; active?: boolean }) => (
+    <div data-testid="shell" data-active={active === false ? "false" : "true"}>
+      {context}
+    </div>
+  ),
 }));
 vi.mock("./LogsView", () => ({
-  LogsView: ({ source }: { source: { pod?: string; name?: string } }) => (
-    <div data-testid="logs">{source.pod ?? source.name}</div>
+  LogsView: ({
+    source,
+    active,
+  }: {
+    source: { pod?: string; name?: string };
+    active?: boolean;
+  }) => (
+    <div data-testid="logs" data-active={active === false ? "false" : "true"}>
+      {source.pod ?? source.name}
+    </div>
   ),
 }));
 
@@ -65,6 +84,24 @@ describe("Dock", () => {
     // …but only the active session's pane is displayed.
     expect((screen.getByTestId("logs").parentElement as HTMLElement).style.display).toBe("block");
     expect((screen.getByTestId("terminal").parentElement as HTMLElement).style.display).toBe("none");
+  });
+
+  it("passes active=false to inactive terminal and logs panes", () => {
+    renderDock({ activeId: 2 });
+    expect(screen.getByTestId("terminal").getAttribute("data-active")).toBe("false");
+    expect(screen.getByTestId("logs").getAttribute("data-active")).toBe("true");
+  });
+
+  it("passes active=false to an inactive local shell pane", () => {
+    renderDock({
+      sessions: [
+        { id: 1, kind: "shell", context: "kind-dev", namespace: "" },
+        { id: 2, kind: "logs", context: "c", namespace: "default", pod: "web-2" },
+      ],
+      activeId: 2,
+    });
+    expect(screen.getByTestId("shell").getAttribute("data-active")).toBe("false");
+    expect(screen.getByTestId("logs").getAttribute("data-active")).toBe("true");
   });
 
   it("activates a tab on click", () => {

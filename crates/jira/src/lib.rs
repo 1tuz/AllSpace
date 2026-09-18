@@ -61,6 +61,77 @@ mod tests {
     }
 
     #[test]
+    fn get_issue_detail_bounds_links_and_keeps_newest_comments() {
+        struct DetailTransport;
+
+        impl JiraTransport for DetailTransport {
+            fn send(&self, request: JiraRequest) -> Result<JiraResponse, JiraError> {
+                if request.url.ends_with("/rest/auth/1/session") {
+                    return Ok(JiraResponse::json(
+                        201,
+                        json!({ "session": { "name": "JSESSIONID", "value": "session-cookie" } }),
+                    ));
+                }
+                assert_eq!(
+                    request.url,
+                    "https://jira.example.test/rest/api/2/issue/OPS-142?fields=summary,status,project,assignee,issuelinks,comment"
+                );
+                let mut links = Vec::new();
+                for i in 0..(MAX_ISSUE_LINKS + 3) {
+                    links.push(json!({
+                        "type": { "name": "Relates", "outward": "relates to", "inward": "relates to" },
+                        "outwardIssue": { "key": format!("OPS-{i}"), "fields": { "summary": format!("Linked {i}") } }
+                    }));
+                }
+                let mut comments = Vec::new();
+                for i in 0..(MAX_ISSUE_ACTIVITY + 4) {
+                    comments.push(json!({
+                        "author": { "displayName": format!("Author {i}") },
+                        "body": format!("Comment body {i}"),
+                        "created": format!("2024-01-{:02}T12:00:00.000+0000", i + 1)
+                    }));
+                }
+                Ok(JiraResponse::json(
+                    200,
+                    json!({
+                        "key": "OPS-142",
+                        "fields": {
+                            "summary": "Cache invalidation",
+                            "status": { "name": "In Progress" },
+                            "project": { "key": "OPS" },
+                            "assignee": { "displayName": "Ada Operator" },
+                            "issuelinks": links,
+                            "comment": { "comments": comments }
+                        }
+                    }),
+                ))
+            }
+        }
+
+        let client = JiraClient::new(
+            "https://jira.example.test",
+            "operator",
+            "fixture-password",
+            DetailTransport,
+        )
+        .unwrap();
+        let detail = client.get_issue_detail("OPS-142").unwrap();
+
+        assert_eq!(detail.issue.attributes["assignee"], "Ada Operator");
+        assert_eq!(
+            detail.issue.url.as_deref(),
+            Some("https://jira.example.test/browse/OPS-142")
+        );
+        assert_eq!(detail.links.len(), MAX_ISSUE_LINKS);
+        assert_eq!(detail.activity.len(), MAX_ISSUE_ACTIVITY);
+        assert_eq!(detail.activity[0].summary, "Comment body 4");
+        assert_eq!(
+            detail.activity.last().map(|a| a.summary.as_str()),
+            Some("Comment body 13")
+        );
+    }
+
+    #[test]
     fn searches_issues_by_jql_with_a_fresh_session() {
         struct SearchTransport;
 
@@ -158,16 +229,15 @@ pub struct ReqwestJiraTransport {
 }
 impl ReqwestJiraTransport {
     pub fn new() -> Result<Self, JiraError> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        // Corporate Jira (AppFarm/Komus) serves private-CA TLS. Sibling tools use
-        // requests verify=False; without this, rustls fails before auth.
-        let client = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(20))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| JiraError::Transport(e.to_string()))?;
+        Self::with_tls(&srelens_devops_profiles::TlsConfig::default())
+    }
+
+    pub fn with_tls(tls: &srelens_devops_profiles::TlsConfig) -> Result<Self, JiraError> {
+        let client = srelens_devops_profiles::blocking_client(
+            tls,
+            JiraError::Transport,
+            |builder| builder.redirect(reqwest::redirect::Policy::none()),
+        )?;
         Ok(Self { client })
     }
 }
@@ -195,16 +265,28 @@ impl JiraTransport for ReqwestJiraTransport {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+/// Hard caps for selected-issue detail — activity/links must stay bounded.
+pub const MAX_ISSUE_LINKS: usize = 20;
+pub const MAX_ISSUE_ACTIVITY: usize = 10;
+const ISSUE_DETAIL_FIELDS: &str = "summary,status,project,assignee,issuelinks,comment";
+const COMMENT_BODY_MAX: usize = 240;
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct JiraIssue {
     pub key: String,
     pub fields: JiraIssueFields,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct JiraIssueFields {
     pub summary: String,
     pub status: JiraNamedValue,
     pub project: JiraProject,
+    #[serde(default)]
+    pub assignee: Option<JiraUser>,
+    #[serde(default)]
+    pub issuelinks: Vec<JiraRawIssueLink>,
+    #[serde(default)]
+    pub comment: Option<JiraCommentBlock>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct JiraNamedValue {
@@ -214,14 +296,207 @@ pub struct JiraNamedValue {
 pub struct JiraProject {
     pub key: String,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct JiraUser {
+    #[serde(default, rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct JiraCommentBlock {
+    #[serde(default)]
+    pub comments: Vec<JiraComment>,
+}
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct JiraComment {
+    #[serde(default)]
+    pub author: Option<JiraUser>,
+    #[serde(default)]
+    pub body: Value,
+    #[serde(default)]
+    pub created: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct JiraRawIssueLink {
+    #[serde(rename = "type")]
+    pub link_type: JiraLinkType,
+    #[serde(default, rename = "outwardIssue")]
+    pub outward_issue: Option<JiraLinkedIssue>,
+    #[serde(default, rename = "inwardIssue")]
+    pub inward_issue: Option<JiraLinkedIssue>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct JiraLinkType {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub outward: Option<String>,
+    #[serde(default)]
+    pub inward: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct JiraLinkedIssue {
+    pub key: String,
+    #[serde(default)]
+    pub fields: Option<JiraLinkedIssueFields>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct JiraLinkedIssueFields {
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraIssueLink {
+    pub relation: String,
+    pub issue_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraIssueActivity {
+    pub kind: String,
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IssueDetail {
+    pub issue: Entity,
+    pub links: Vec<JiraIssueLink>,
+    pub activity: Vec<JiraIssueActivity>,
+}
+
 pub fn normalize_issue(issue: &JiraIssue) -> Entity {
+    normalize_issue_with_url(issue, None)
+}
+
+fn normalize_issue_with_url(issue: &JiraIssue, browse_url: Option<String>) -> Entity {
+    let mut attributes = json!({
+        "projectKey": issue.fields.project.key,
+        "status": issue.fields.status.name,
+    });
+    if let Some(assignee) = issue.fields.assignee.as_ref().and_then(user_label) {
+        attributes["assignee"] = json!(assignee);
+    }
     Entity {
         id: format!("jira:issue:{}", issue.key),
         kind: EntityKind::Issue,
         source: Source::Jira,
         title: issue.fields.summary.clone(),
-        url: None,
-        attributes: json!({ "projectKey": issue.fields.project.key, "status": issue.fields.status.name }),
+        url: browse_url,
+        attributes,
+    }
+}
+
+fn user_label(user: &JiraUser) -> Option<String> {
+    user.display_name
+        .as_ref()
+        .filter(|name| !name.is_empty())
+        .cloned()
+        .or_else(|| user.name.as_ref().filter(|name| !name.is_empty()).cloned())
+}
+
+fn comment_body_text(body: &Value) -> String {
+    match body {
+        Value::String(text) => truncate_chars(text, COMMENT_BODY_MAX),
+        Value::Null => String::new(),
+        other => {
+            // Jira Cloud / some DC plugins return Atlassian Document Format.
+            let flat = other.to_string();
+            if flat.len() <= 2 {
+                String::new()
+            } else {
+                truncate_chars("Rich-text comment", COMMENT_BODY_MAX)
+            }
+        }
+    }
+}
+
+fn truncate_chars(text: &str, max: usize) -> String {
+    let mut out = String::new();
+    for (idx, ch) in text.chars().enumerate() {
+        if idx >= max {
+            out.push('…');
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn bound_links(raw: &[JiraRawIssueLink]) -> Vec<JiraIssueLink> {
+    raw.iter()
+        .filter_map(|link| {
+            if let Some(outward) = &link.outward_issue {
+                Some(JiraIssueLink {
+                    relation: link
+                        .link_type
+                        .outward
+                        .clone()
+                        .or_else(|| link.link_type.name.clone())
+                        .unwrap_or_else(|| "links to".into()),
+                    issue_key: outward.key.clone(),
+                    summary: outward
+                        .fields
+                        .as_ref()
+                        .and_then(|fields| fields.summary.clone()),
+                })
+            } else if let Some(inward) = &link.inward_issue {
+                Some(JiraIssueLink {
+                    relation: link
+                        .link_type
+                        .inward
+                        .clone()
+                        .or_else(|| link.link_type.name.clone())
+                        .unwrap_or_else(|| "linked from".into()),
+                    issue_key: inward.key.clone(),
+                    summary: inward
+                        .fields
+                        .as_ref()
+                        .and_then(|fields| fields.summary.clone()),
+                })
+            } else {
+                None
+            }
+        })
+        .take(MAX_ISSUE_LINKS)
+        .collect()
+}
+
+fn bound_activity(block: Option<&JiraCommentBlock>) -> Vec<JiraIssueActivity> {
+    let mut comments = block
+        .map(|block| block.comments.as_slice())
+        .unwrap_or(&[])
+        .iter()
+        .map(|comment| JiraIssueActivity {
+            kind: "comment".into(),
+            summary: comment_body_text(&comment.body),
+            author: comment.author.as_ref().and_then(user_label),
+            at: comment.created.clone(),
+        })
+        .filter(|item| !item.summary.is_empty())
+        .collect::<Vec<_>>();
+    // Jira returns comments oldest-first; keep the newest N.
+    if comments.len() > MAX_ISSUE_ACTIVITY {
+        comments = comments.split_off(comments.len() - MAX_ISSUE_ACTIVITY);
+    }
+    comments
+}
+
+pub fn issue_detail_from(issue: &JiraIssue, base_url: &str) -> IssueDetail {
+    let browse = format!("{}/browse/{}", base_url.trim_end_matches('/'), issue.key);
+    IssueDetail {
+        issue: normalize_issue_with_url(issue, Some(browse)),
+        links: bound_links(&issue.fields.issuelinks),
+        activity: bound_activity(issue.fields.comment.as_ref()),
     }
 }
 
@@ -264,6 +539,29 @@ impl<T: JiraTransport> JiraClient<T> {
             return Err(JiraError::UnexpectedStatus(issue.status));
         }
         serde_json::from_value(issue.body).map_err(|e| JiraError::InvalidResponse(e.to_string()))
+    }
+
+    /// Issue summary + assignee + bounded links/comments for selected-unit detail.
+    pub fn get_issue_detail(&self, key: &str) -> Result<IssueDetail, JiraError> {
+        if key.is_empty() || key.contains('/') {
+            return Err(JiraError::InvalidIssueKey);
+        }
+        let cookie = self.session_cookie()?;
+        let issue = self.transport.send(JiraRequest {
+            method: "GET".into(),
+            url: format!(
+                "{}/rest/api/2/issue/{key}?fields={ISSUE_DETAIL_FIELDS}",
+                self.base_url
+            ),
+            headers: BTreeMap::from([("Cookie".into(), cookie)]),
+            body: None,
+        })?;
+        if !(200..300).contains(&issue.status) {
+            return Err(JiraError::UnexpectedStatus(issue.status));
+        }
+        let parsed: JiraIssue = serde_json::from_value(issue.body)
+            .map_err(|e| JiraError::InvalidResponse(e.to_string()))?;
+        Ok(issue_detail_from(&parsed, &self.base_url))
     }
 
     pub fn search_issue_keys(&self, keys: &[&str]) -> Result<Vec<JiraIssue>, JiraError> {
@@ -340,6 +638,20 @@ pub struct SearchIssuesOut {
     pub issues: Vec<Entity>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GetIssueIn {
+    pub issue_key: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GetIssueOut {
+    pub issue: Entity,
+    pub links: Vec<JiraIssueLink>,
+    pub activity: Vec<JiraIssueActivity>,
+}
+
 /// `jira.searchIssues` — read the active profile's Jira Data Center issues by key.
 ///
 /// Public configuration is read fresh from durable settings and the credential
@@ -349,7 +661,7 @@ pub struct SearchIssuesOut {
 pub fn search_issues_capability(
     store: Arc<dyn CredentialStore>,
     settings_get: Capability,
-    transport: Arc<dyn Fn() -> Result<Arc<dyn JiraTransport>, JiraError> + Send + Sync>,
+    transport: Arc<dyn Fn(srelens_devops_profiles::TlsConfig) -> Result<Arc<dyn JiraTransport>, JiraError> + Send + Sync>,
 ) -> Capability {
     Capability::typed::<SearchIssuesIn, SearchIssuesOut, _, _>(
         "jira.searchIssues",
@@ -364,11 +676,12 @@ pub fn search_issues_capability(
                     .await
                     .map_err(|error| CapabilityError::Handler(error.to_string()))?;
                 let keys = input.issue_keys.clone();
+                let tls = connection.tls.clone();
 
                 // The client is blocking; the request itself runs off the async
                 // worker, the way the rest of the registry treats blocking I/O.
                 let issues = tokio::task::spawn_blocking(move || {
-                    let transport = transport().map_err(|error| error.to_string())?;
+                    let transport = transport(tls).map_err(|error| error.to_string())?;
                     let client = JiraClient::new(
                         &connection.base_url,
                         &connection.credential.username,
@@ -389,6 +702,59 @@ pub fn search_issues_capability(
 
                 Ok(SearchIssuesOut {
                     issues: issues.iter().map(normalize_issue).collect(),
+                })
+            }
+        },
+    )
+}
+
+/// `jira.getIssue` — selected-issue detail: summary, status, assignee, links, recent comments.
+///
+/// Links and comments are hard-capped (`MAX_ISSUE_LINKS` / `MAX_ISSUE_ACTIVITY`).
+/// Failures stay failures — never an empty detail pretending the issue is gone.
+pub fn get_issue_capability(
+    store: Arc<dyn CredentialStore>,
+    settings_get: Capability,
+    transport: Arc<dyn Fn(srelens_devops_profiles::TlsConfig) -> Result<Arc<dyn JiraTransport>, JiraError> + Send + Sync>,
+) -> Capability {
+    Capability::typed::<GetIssueIn, GetIssueOut, _, _>(
+        "jira.getIssue",
+        "read one Jira Data Center issue with bounded links and recent comments",
+        Annotations::READ_ONLY,
+        move |input| {
+            let store = store.clone();
+            let settings = settings_get.clone();
+            let transport = transport.clone();
+            async move {
+                let connection = active_connection(&settings, store.as_ref(), Provider::Jira)
+                    .await
+                    .map_err(|error| CapabilityError::Handler(error.to_string()))?;
+                let key = input.issue_key.clone();
+                let tls = connection.tls.clone();
+
+                let detail = tokio::task::spawn_blocking(move || {
+                    let transport = transport(tls).map_err(|error| error.to_string())?;
+                    let client = JiraClient::new(
+                        &connection.base_url,
+                        &connection.credential.username,
+                        &connection.credential.secret,
+                        transport,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    client
+                        .get_issue_detail(&key)
+                        .map_err(|error| error.to_string())
+                })
+                .await
+                .map_err(|error| {
+                    CapabilityError::Handler(format!("the Jira request task failed: {error}"))
+                })?
+                .map_err(CapabilityError::Handler)?;
+
+                Ok(GetIssueOut {
+                    issue: detail.issue,
+                    links: detail.links,
+                    activity: detail.activity,
                 })
             }
         },
@@ -427,6 +793,29 @@ mod capability_tests {
             if self.status != 200 {
                 return Ok(JiraResponse::json(self.status, json!({})));
             }
+            if request.url.contains("/rest/api/2/issue/") {
+                return Ok(JiraResponse::json(
+                    200,
+                    json!({
+                        "key": "OPS-142",
+                        "fields": {
+                            "summary": "Cache invalidation",
+                            "status": { "name": "In Progress" },
+                            "project": { "key": "OPS" },
+                            "assignee": { "displayName": "Ada Operator" },
+                            "issuelinks": [{
+                                "type": { "name": "Blocks", "outward": "blocks", "inward": "is blocked by" },
+                                "outwardIssue": { "key": "OPS-140", "fields": { "summary": "Prior fix" } }
+                            }],
+                            "comment": { "comments": [{
+                                "author": { "displayName": "Ada Operator" },
+                                "body": "Restart the worker on failure",
+                                "created": "2024-06-01T10:00:00.000+0000"
+                            }] }
+                        }
+                    }),
+                ));
+            }
             Ok(JiraResponse::json(
                 200,
                 json!({ "issues": [{
@@ -461,9 +850,17 @@ mod capability_tests {
     ) -> Registry {
         let mut registry = Registry::new();
         registry.register(search_issues_capability(
+            store.clone(),
+            settings_capability(),
+            Arc::new({
+                let transport = transport.clone();
+                move |_tls| Ok(transport.clone() as Arc<dyn JiraTransport>)
+            }),
+        ));
+        registry.register(get_issue_capability(
             store,
             settings_capability(),
-            Arc::new(move || Ok(transport.clone() as Arc<dyn JiraTransport>)),
+            Arc::new(move |_tls| Ok(transport.clone() as Arc<dyn JiraTransport>)),
         ));
         registry
     }
@@ -573,5 +970,45 @@ mod capability_tests {
             .expect_err("the session was refused");
 
         assert!(error.to_string().contains("401"));
+    }
+
+    #[tokio::test]
+    async fn get_issue_uses_wrapper_spelling_and_returns_bounded_detail() {
+        let registry = registry_with(store_with_credential(), ScriptedTransport::answering(200));
+
+        let out = registry
+            .invoke("jira.getIssue", json!({ "issueKey": "OPS-142" }))
+            .await
+            .expect("fixture profile resolves");
+
+        assert_eq!(out["issue"]["id"], "jira:issue:OPS-142");
+        assert_eq!(out["issue"]["attributes"]["assignee"], "Ada Operator");
+        assert_eq!(out["links"][0]["issueKey"], "OPS-140");
+        assert_eq!(out["links"][0]["relation"], "blocks");
+        assert_eq!(out["activity"][0]["kind"], "comment");
+        assert_eq!(out["activity"][0]["summary"], "Restart the worker on failure");
+        assert!(!out.to_string().contains("must-not-appear"));
+
+        let wrong = registry
+            .invoke("jira.getIssue", json!({ "issue_key": "OPS-142" }))
+            .await;
+        assert!(matches!(wrong, Err(CapabilityError::InvalidInput(_))));
+    }
+
+    #[tokio::test]
+    async fn get_issue_without_credential_names_that_reason() {
+        let registry = registry_with(
+            Arc::new(SessionCredentials::new()),
+            ScriptedTransport::answering(200),
+        );
+
+        let error = registry
+            .invoke("jira.getIssue", json!({ "issueKey": "OPS-142" }))
+            .await
+            .expect_err("no credential is stored");
+
+        assert!(error
+            .to_string()
+            .contains("no credential is stored for appfarm/jira"));
     }
 }

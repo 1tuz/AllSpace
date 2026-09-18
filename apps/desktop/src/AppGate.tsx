@@ -5,13 +5,16 @@ import { LoginScreen } from "./components/LoginScreen";
 import { fetchMe, type Me } from "@srelens/core";
 import { isTauri, isWeb } from "@srelens/core/platform";
 import { LoadingState } from "./ui";
+import { applyTheme, getInitialTheme } from "./ui/theme";
 import { saveRuntimeHandoff, type RuntimeHandoff } from "./workspace/runtimeHandoff";
+import { resetWorkspaceChrome } from "./workspace/chrome";
 
 type Auth = { status: "pending" } | { status: "authed"; me: Me | null } | { status: "anon" };
 
 type Surface = "workspace" | "classic";
 
 const SURFACE_KEY = "srelens.productSurface";
+const requiresWebSession = isWeb && !import.meta.env.DEV;
 
 function loadSurface(): Surface {
   try {
@@ -36,11 +39,25 @@ function saveSurface(surface: Surface): void {
  * keychain by default; an optional master password is configured in Security.
  */
 export default function AppGate() {
-  const [auth, setAuth] = useState<Auth>(isWeb ? { status: "pending" } : { status: "authed", me: null });
+  const [auth, setAuth] = useState<Auth>(
+    requiresWebSession ? { status: "pending" } : { status: "authed", me: null },
+  );
   const [surface, setSurface] = useState<Surface>(loadSurface);
 
   useEffect(() => {
-    if (!isWeb) return;
+    applyTheme(getInitialTheme());
+    // Re-read storage on OS appearance change so AppearanceSection's liquidGlass
+    // is not wiped by a stale mount-time theme closure.
+    const initial = getInitialTheme();
+    if (initial.mode !== "system") return;
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const sync = () => applyTheme(getInitialTheme());
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (!requiresWebSession) return;
     let cancelled = false;
     void fetchMe()
       .then((me) => !cancelled && setAuth(me ? { status: "authed", me } : { status: "anon" }))
@@ -52,6 +69,7 @@ export default function AppGate() {
 
   function openClassicIde(target?: RuntimeHandoff) {
     if (target) saveRuntimeHandoff(target);
+    void resetWorkspaceChrome();
     saveSurface("classic");
     setSurface("classic");
   }

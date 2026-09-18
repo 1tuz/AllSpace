@@ -6,7 +6,7 @@ import { initializeSettingsStorage } from "@srelens/core";
 // The service layer says what to notify; this decides how. Installed before
 // render so a toast raised during startup is not dropped on the floor.
 import { installToastNotifier } from "./ui/notifier";
-import srelensMark from "./assets/srelens-mark.svg";
+import srelensMark from "./assets/srelens-mark.png";
 import {
   PORTED_SCREENS,
   applyNextDesignChrome,

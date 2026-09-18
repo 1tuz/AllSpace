@@ -43,7 +43,11 @@ pub struct NativeHistory(std::sync::Mutex<Vec<(String, Vec<srelens_llm::types::T
 impl NativeHistory {
     fn get(&self, session: &str) -> Vec<srelens_llm::types::Turn> {
         let entries = self.0.lock().unwrap();
-        entries.iter().find(|(id, _)| id == session).map(|(_, turns)| turns.clone()).unwrap_or_default()
+        entries
+            .iter()
+            .find(|(id, _)| id == session)
+            .map(|(_, turns)| turns.clone())
+            .unwrap_or_default()
     }
 
     fn set(&self, session: String, turns: Vec<srelens_llm::types::Turn>) {
@@ -91,14 +95,25 @@ pub struct McpToolInvoker {
 
 impl McpToolInvoker {
     pub fn new(server: Arc<McpServer>) -> Self {
-        Self { server, aliases: Default::default() }
+        Self {
+            server,
+            aliases: Default::default(),
+        }
     }
 }
 
 /// Rewrite a registry id into a name every provider accepts: any character
 /// outside `[A-Za-z0-9_-]` becomes `_` (`k8s.listPods` → `k8s_listPods`).
 fn provider_safe_name(id: &str) -> String {
-    id.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') { c } else { '_' }).collect()
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Pick an unused alias for `id` and record it in `aliases`. Two ids that
@@ -117,9 +132,10 @@ fn assign_alias(aliases: &mut std::collections::HashMap<String, String>, id: &st
 impl ToolInvoker for McpToolInvoker {
     async fn list_tools(&self) -> Result<Vec<ToolDef>, LlmError> {
         let req = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
-        let resp = srelens_mcp::stdio::handle_request(&self.server, &req, srelens_mcp::Transport::Http)
-            .await
-            .ok_or_else(|| LlmError::Api("tools/list returned no response".into()))?;
+        let resp =
+            srelens_mcp::stdio::handle_request(&self.server, &req, srelens_mcp::Transport::Http)
+                .await
+                .ok_or_else(|| LlmError::Api("tools/list returned no response".into()))?;
         let tools = resp
             .get("result")
             .and_then(|r| r.get("tools"))
@@ -141,24 +157,41 @@ impl ToolInvoker for McpToolInvoker {
         // The model calls the advertised alias; the registry knows only the
         // dotted id. An unknown name passes through unchanged and surfaces as
         // the server's own "unknown tool" error below.
-        let name = self.aliases.lock().unwrap().get(name).cloned().unwrap_or_else(|| name.to_string());
+        let name = self
+            .aliases
+            .lock()
+            .unwrap()
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.to_string());
         let req = json!({
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
             "params": { "name": name, "arguments": args },
         });
-        let resp = srelens_mcp::stdio::handle_request(&self.server, &req, srelens_mcp::Transport::Http)
-            .await
-            .ok_or_else(|| LlmError::Api("tools/call returned no response".into()))?;
+        let resp =
+            srelens_mcp::stdio::handle_request(&self.server, &req, srelens_mcp::Transport::Http)
+                .await
+                .ok_or_else(|| LlmError::Api("tools/call returned no response".into()))?;
         // A JSON-RPC error (unknown tool / bad params) is fed back as a failed
         // result so the model can correct itself rather than aborting the turn.
         if let Some(err) = resp.get("error") {
-            let msg = err.get("message").and_then(Value::as_str).unwrap_or("tool call failed");
-            return Ok(ToolCallResult { content: msg.to_string(), is_error: true, denied: false });
+            let msg = err
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("tool call failed");
+            return Ok(ToolCallResult {
+                content: msg.to_string(),
+                is_error: true,
+                denied: false,
+            });
         }
         let result = resp.get("result");
-        let is_error = result.and_then(|r| r.get("isError")).and_then(Value::as_bool).unwrap_or(false);
+        let is_error = result
+            .and_then(|r| r.get("isError"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         // A consent refusal is `isError: true` PLUS the `_meta` marker the
         // server sets on that path — mapping it to `denied` lets the loop
         // report "the user declined" instead of a failed execution.
@@ -181,15 +214,30 @@ impl ToolInvoker for McpToolInvoker {
                     .join("\n")
             })
             .unwrap_or_default();
-        Ok(ToolCallResult { content, is_error, denied })
+        Ok(ToolCallResult {
+            content,
+            is_error,
+            denied,
+        })
     }
 }
 
 fn tool_def_from_json(v: &Value) -> ToolDef {
     ToolDef {
-        name: v.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-        description: v.get("description").and_then(Value::as_str).unwrap_or("").to_string(),
-        input_schema: v.get("inputSchema").cloned().unwrap_or_else(|| json!({ "type": "object" })),
+        name: v
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        description: v
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        input_schema: v
+            .get("inputSchema")
+            .cloned()
+            .unwrap_or_else(|| json!({ "type": "object" })),
         read_only: v
             .get("annotations")
             .and_then(|a| a.get("readOnlyHint"))
@@ -200,7 +248,11 @@ fn tool_def_from_json(v: &Value) -> ToolDef {
 
 /// The directory holding the native agent's config (settings + fallback keys).
 pub fn llm_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("llm"))
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("llm"))
 }
 
 /// Run one native-agent turn end to end, streaming `AgentEvent`s on the
@@ -249,7 +301,8 @@ pub async fn run_native_agent(
     };
     let settings = crate::llm_config::load_settings(&dir.join("settings.json"));
     let vault = app.state::<std::sync::Arc<crate::vault::Vault>>();
-    let cfg = match crate::llm_config::provider_config(&vault, &settings, settings.default_provider) {
+    let cfg = match crate::llm_config::provider_config(&vault, &settings, settings.default_provider)
+    {
         Some(c) if !c.model.is_empty() => c,
         Some(_) => {
             emit(AgentEvent::Error {
@@ -308,7 +361,9 @@ pub async fn run_native_agent(
         // Surface it and keep the prior history untouched; any partial deltas
         // already streamed stay visible but are not treated as a real turn.
         Ok(Err(e)) => {
-            emit(AgentEvent::Error { message: e.to_string() });
+            emit(AgentEvent::Error {
+                message: e.to_string(),
+            });
             emit(AgentEvent::TurnDone);
         }
         // Cancelled (aborted) mid-flight: re-enable the composer; history for the
@@ -343,7 +398,11 @@ pub async fn llm_set_settings(app: tauri::AppHandle, settings: LlmSettings) -> R
 
 /// Store an API key for `provider` in the encrypted secrets vault.
 #[tauri::command]
-pub async fn llm_set_key(app: tauri::AppHandle, provider: ProviderKind, key: String) -> Result<(), String> {
+pub async fn llm_set_key(
+    app: tauri::AppHandle,
+    provider: ProviderKind,
+    key: String,
+) -> Result<(), String> {
     let vault = app.state::<std::sync::Arc<crate::vault::Vault>>();
     crate::llm_config::set_key(&vault, &llm_dir(&app)?, provider, key.trim())
 }
@@ -378,10 +437,16 @@ pub async fn llm_list_models(
     let settings = crate::llm_config::load_settings(&settings_path(&app)?);
     let mut cfg = crate::llm_config::provider_config(&vault, &settings, provider)
         .ok_or("Add an API key for this provider first.")?;
-    if let Some(url) = base_url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty()) {
+    if let Some(url) = base_url
+        .map(|u| u.trim().to_string())
+        .filter(|u| !u.is_empty())
+    {
         cfg.base_url = url;
     }
-    srelens_llm::HttpProvider::new(cfg).list_models().await.map_err(|e| e.to_string())
+    srelens_llm::HttpProvider::new(cfg)
+        .list_models()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -417,7 +482,10 @@ mod tests {
     /// are visible, so it pins the duplicated constants to the same value.
     #[test]
     fn the_denial_text_marker_matches_between_the_mcp_server_and_the_cli_parsers() {
-        assert_eq!(srelens_mcp::stdio::DENIED_PREFIX, srelens_agent::event::DENIED_PREFIX);
+        assert_eq!(
+            srelens_mcp::stdio::DENIED_PREFIX,
+            srelens_agent::event::DENIED_PREFIX
+        );
     }
 
     #[test]
@@ -425,7 +493,10 @@ mod tests {
         let mut aliases = std::collections::HashMap::new();
         // Anthropic/OpenAI reject `.` in function names; the alias replaces it.
         assert_eq!(assign_alias(&mut aliases, "k8s.listPods"), "k8s_listPods");
-        assert_eq!(aliases.get("k8s_listPods").map(String::as_str), Some("k8s.listPods"));
+        assert_eq!(
+            aliases.get("k8s_listPods").map(String::as_str),
+            Some("k8s.listPods")
+        );
         // Already-safe ids pass through and re-listing is stable.
         assert_eq!(assign_alias(&mut aliases, "ping"), "ping");
         assert_eq!(assign_alias(&mut aliases, "k8s.listPods"), "k8s_listPods");
@@ -460,7 +531,10 @@ mod tests {
         }
         // One over the cap: the least-recently-written session is gone, the
         // newest survives.
-        assert!(h.get("s0").is_empty(), "oldest session should have been evicted");
+        assert!(
+            h.get("s0").is_empty(),
+            "oldest session should have been evicted"
+        );
         assert!(!h.get(&format!("s{MAX_HISTORY_SESSIONS}")).is_empty());
         // Rewriting an old session refreshes its recency instead of duplicating.
         h.set("s1".into(), vec![Turn::User("again".into())]);
@@ -471,7 +545,10 @@ mod tests {
     #[test]
     fn trimming_keeps_the_newest_turns_and_starts_on_a_user_turn() {
         use srelens_llm::types::Turn;
-        let a = |t: &str| Turn::Assistant { text: t.into(), tool_calls: Vec::new() };
+        let a = |t: &str| Turn::Assistant {
+            text: t.into(),
+            tool_calls: Vec::new(),
+        };
         let turns = vec![
             Turn::User("q1".into()),
             a("a1"),

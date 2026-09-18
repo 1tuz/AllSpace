@@ -2,6 +2,7 @@
 @import "@srelens/ui-next/extensions/styles";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./theme-palettes.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -132,14 +133,107 @@
 }
 
 /* Workspace shell materials — structural only; respect reduced transparency. */
+.workspace-shell {
+  --ws-rail-width: 13rem;
+  --ws-row-height: 2.5rem;
+  --ws-row-pad-x: 0.75rem;
+  --ws-row-pad-y: 0.5rem;
+  --ws-section-gap: 1.25rem;
+  --ws-header-pad-x: 1.25rem;
+  --ws-header-pad-y: 0.875rem;
+  --ws-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --ws-titlebar-pad: 0px;
+  --ws-radius: 0.375rem;
+  --ws-hairline: var(--border);
+  --ws-situation-loud: oklch(0.55 0.18 35);
+  --ws-situation-notable: oklch(0.55 0.12 75);
+  --ws-situation-calm: oklch(0.45 0.02 250);
+  --ws-confidence-exact: oklch(0.5 0.12 155);
+  --ws-confidence-strong: oklch(0.5 0.1 230);
+  --ws-confidence-heuristic: oklch(0.5 0.08 75);
+}
+
+.dark .workspace-shell {
+  --ws-situation-loud: oklch(0.78 0.14 45);
+  --ws-situation-notable: oklch(0.8 0.1 85);
+  --ws-situation-calm: oklch(0.72 0.02 250);
+  --ws-confidence-exact: oklch(0.78 0.12 155);
+  --ws-confidence-strong: oklch(0.78 0.1 230);
+  --ws-confidence-heuristic: oklch(0.78 0.1 85);
+}
+
+/* Traffic-light clearance when Tauri overlay titlebar is active on macOS. */
+.workspace-shell[data-chrome="overlay"] {
+  --ws-titlebar-pad: 1.75rem;
+}
+
 .workspace-shell__rail {
+  width: var(--ws-rail-width);
+  padding-top: var(--ws-titlebar-pad);
   backdrop-filter: saturate(1.2) blur(12px);
-  background-color: color-mix(in oklab, var(--color-muted, canvas) 30%, transparent);
+  -webkit-backdrop-filter: saturate(1.2) blur(12px);
+  background-color: color-mix(in oklab, var(--sidebar, var(--muted)) 82%, transparent);
+  border-right-color: var(--ws-hairline);
+}
+
+.workspace-shell__drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+/* Overlay titlebar grab strip across the main column (rail has its own pad). */
+.workspace-shell__main-drag {
+  height: var(--ws-titlebar-pad);
+  min-height: var(--ws-titlebar-pad);
+}
+
+.workspace-shell__no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.workspace-shell__mono {
+  font-family: var(--ws-mono);
+}
+
+.workspace-dense-row {
+  min-height: var(--ws-row-height);
+  padding: var(--ws-row-pad-y) var(--ws-row-pad-x);
+}
+
+/* Git commit page: browser skips paint for off-screen rows (no TanStack Virtual). */
+.workspace-git-commit-rows > li {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
+
+.workspace-panel-resize {
+  width: 1px;
+  background: var(--ws-hairline);
+  position: relative;
+}
+
+.workspace-panel-resize::after {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+}
+
+.workspace-panel-resize[data-resize-handle-active],
+.workspace-panel-resize:hover {
+  background: var(--ring);
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .workspace-shell__rail {
     backdrop-filter: none;
-    background-color: var(--color-muted, canvas);
+    -webkit-backdrop-filter: none;
+    background-color: var(--sidebar, var(--muted));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-shell * {
+    transition: none !important;
   }
 }

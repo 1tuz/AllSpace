@@ -41,13 +41,22 @@ export interface ClusterInfo {
 /**
  * Load the kube contexts via the `k8s.listContexts` capability, normalising
  * success/failure into a plain outcome. The invoker is injectable for tests.
+ *
+ * `replaceDefaults` scopes the inventory to `additionalPaths` only — used by
+ * workspace contours so Komus never inherits AppFarm contexts from
+ * `$KUBECONFIG` / `~/.kube/config`.
  */
 export async function listContexts(
   additionalPaths: string[] = [],
   invoke: Invoker = invokeCapability,
+  options: { replaceDefaults?: boolean } = {},
 ): Promise<ContextsOutcome> {
   try {
-    const out = await invoke<{ contexts: ClusterContext[]; error?: string }>("k8s.listContexts", { paths: additionalPaths });
+    const payload: { paths: string[]; replaceDefaults?: boolean } = { paths: additionalPaths };
+    if (options.replaceDefaults) {
+      payload.replaceDefaults = true;
+    }
+    const out = await invoke<{ contexts: ClusterContext[]; error?: string }>("k8s.listContexts", payload);
     return { contexts: out.contexts, ...(out.error ? { error: out.error } : {}) };
   } catch (e) {
     return { error: String(e) };

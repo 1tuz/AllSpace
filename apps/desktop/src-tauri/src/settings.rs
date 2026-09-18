@@ -4,7 +4,9 @@
 //! The value lives in the kube crate (a process-wide atomic); the frontend
 //! persists it in localStorage and re-applies it here on each startup.
 
-use srelens_kube::connect::{request_timeout_secs, set_request_timeout_secs, MAX_TIMEOUT_SECS, MIN_TIMEOUT_SECS};
+use srelens_kube::connect::{
+    request_timeout_secs, set_request_timeout_secs, MAX_TIMEOUT_SECS, MIN_TIMEOUT_SECS,
+};
 
 /// The request-timeout bounds, so the UI can render/validate the same range.
 #[derive(serde::Serialize)]

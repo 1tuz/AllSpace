@@ -206,6 +206,27 @@ describe("LogsView", () => {
     await waitFor(() => expect(stop).toHaveBeenCalled());
   });
 
+  it("stops live-tail when the Dock pane becomes inactive", async () => {
+    podLogsMock.mockResolvedValue({ logs: "" });
+    const stop = vi.fn();
+    startLogStreamMock.mockImplementation(async () => ({ stop }));
+    const { rerender } = render(
+      <LogsView context="kind-dev" namespace="default" source={{ type: "pod", pod: "web-1" }} active />,
+    );
+    fireEvent.click(await screen.findByLabelText("Live tail"));
+    await waitFor(() => expect(startLogStreamMock).toHaveBeenCalled());
+
+    rerender(
+      <LogsView
+        context="kind-dev"
+        namespace="default"
+        source={{ type: "pod", pod: "web-1" }}
+        active={false}
+      />,
+    );
+    await waitFor(() => expect(stop).toHaveBeenCalled());
+  });
+
   it("waits for container discovery before starting live mode", async () => {
     let resolvePod: ((value: unknown) => void) | undefined;
     getObjectMock.mockReturnValue(new Promise((resolve) => { resolvePod = resolve; }));

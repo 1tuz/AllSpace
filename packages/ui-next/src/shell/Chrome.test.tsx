@@ -14,6 +14,7 @@ import {
 import { defaultState } from "../lib/tabs";
 import { APPEARANCE_KEY } from "../lib/appearance";
 import { lockWorkspace, resetLock, __setKnownVaultMode } from "./LockGate";
+import { __setVaultPasswordGateEnabledForTests } from "@srelens/core";
 
 // jsdom has no ResizeObserver and Radix's popper watches the trigger with one.
 // The same stub the kit's Radix-backed suites carry, kept here rather than in
@@ -77,6 +78,7 @@ beforeEach(() => {
   desktop.mockReturnValue(true);
   platform.mockReturnValue(true);
   chords.hint.mockImplementation(chords.real.fn);
+  __setVaultPasswordGateEnabledForTests(true);
   resetLock();
   // The ordinary desktop state: a vault that exists and is open. `resetLock`
   // leaves the mode unknown, which is the pre-launch-read state, so every test

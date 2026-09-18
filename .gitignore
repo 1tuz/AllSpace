@@ -30,3 +30,9 @@ coverage/
 
 # Local webdriver smoke host (macOS cannot run tauri-driver; see .smoke/Dockerfile)
 .smoke/
+
+# Agent / snapshot scratch — never ship in the app or the tree
+.codewhale/
+repomix-snapshot*.xml
+**/__pycache__/
+*.py[cod]

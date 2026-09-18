@@ -1084,8 +1084,7 @@ html[data-glass="liquid"] .workspace-shell > .flex-1 {
 html[data-glass="liquid"] .workspace-shell .bg-background,
 html[data-glass="liquid"] .workspace-shell header,
 html[data-glass="liquid"] .workspace-shell main,
-html[data-glass="liquid"] .workspace-shell [data-testid^="workspace-panel-"],
-html[data-glass="liquid"] .workspace-shell [data-testid="demo-mode-chrome"] {
+html[data-glass="liquid"] .workspace-shell [data-testid^="workspace-panel-"] {
   backdrop-filter: saturate(1.35) blur(16px);
   -webkit-backdrop-filter: saturate(1.35) blur(16px);
   background-color: color-mix(in oklab, var(--background) 68%, transparent) !important;
@@ -1102,18 +1101,6 @@ html[data-glass="liquid"] [data-testid="workspace-palette"] > div {
   backdrop-filter: saturate(1.6) blur(20px);
   -webkit-backdrop-filter: saturate(1.6) blur(20px);
   background-color: color-mix(in oklab, var(--background) 72%, transparent);
-}
-
-html[data-glass="liquid"] .workspace-dockview .dv-tabs-and-actions-container,
-html[data-glass="liquid"] .workspace-dockview .dv-groupview,
-html[data-glass="liquid"] .workspace-dockview .dv-pane-container {
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  background-color: color-mix(in oklab, var(--card, var(--background)) 55%, transparent) !important;
-}
-
-html[data-glass="liquid"] .workspace-dockview .dv-tab {
-  background-color: color-mix(in oklab, var(--muted) 35%, transparent) !important;
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -1134,15 +1121,11 @@ html[data-glass="liquid"] .workspace-dockview .dv-tab {
   html[data-glass="liquid"] .workspace-shell header,
   html[data-glass="liquid"] .workspace-shell main,
   html[data-glass="liquid"] .workspace-shell [data-testid^="workspace-panel-"],
-  html[data-glass="liquid"] .workspace-shell [data-testid="demo-mode-chrome"],
   html[data-glass="liquid"] .workspace-shell .bg-card,
   html[data-glass="liquid"] .workspace-shell .bg-muted,
   html[data-glass="liquid"] .workspace-shell .bg-sidebar,
   html[data-glass="liquid"] .workspace-palette,
-  html[data-glass="liquid"] [data-testid="workspace-palette"] > div,
-  html[data-glass="liquid"] .workspace-dockview .dv-tabs-and-actions-container,
-  html[data-glass="liquid"] .workspace-dockview .dv-groupview,
-  html[data-glass="liquid"] .workspace-dockview .dv-pane-container {
+  html[data-glass="liquid"] [data-testid="workspace-palette"] > div {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background: var(--sidebar, var(--background)) !important;

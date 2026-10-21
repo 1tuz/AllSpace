@@ -52,10 +52,32 @@
   <img alt="Rust core" src="https://img.shields.io/badge/core-Rust-8b5cf6">
   <img alt="Tauri v2" src="https://img.shields.io/badge/desktop-Tauri_v2-e457c2">
   <img alt="MCP server" src="https://img.shields.io/badge/agents-MCP-fb923c">
-  <img alt="Project status: stable" src="https://img.shields.io/badge/status-stable-22c55e">
+  <img alt="Project status: prototype" src="https://img.shields.io/badge/status-prototype-f59e0b">
 </p>
 
 ---
+
+## Provenance
+
+SmallSpace is a prototype fork of [srelens/srelens](https://github.com/srelens/srelens).
+Its code foundation is that project: the Tauri v2 shell, React 19 frontend,
+pure-Rust capability registry, Kubernetes watch and stream layer, and MCP server.
+The delivery-first workspace is built on that core in this tree.
+
+[Salience](https://github.com/clegginabox/salience-macos) is the product and UX
+reference: connected work from ticket through change, build, and runtime;
+My Work; and a compact master/detail workspace. Its public
+[concepts](https://clegginabox.github.io/salience-macos/docs/concepts) and
+[My Work](https://clegginabox.github.io/salience-macos/docs/my-work) documentation
+informed this direction. Salience is credited as inspiration, not as a source-code
+dependency.
+
+SmallSpace adds a provider-neutral delivery model, evidence-based correlation,
+Jira / GitLab / Bitbucket / Jenkins adapters, and a My Work widget mosaic with
+an inline delivery Trace. These additions live in `crates/devops-model`,
+`crates/correlation`, the provider crates, and `apps/desktop/src/workspace`.
+
+This fork retains the upstream [MIT License](LICENSE) and copyright notice.
 
 ## Why srelens?
 
@@ -122,7 +144,11 @@ See the [user guide](docs/USAGE.md) for how to use each of these.
 
 ## Install
 
-Download the latest release for your platform from
+These are upstream **srelens** releases. SmallSpace publishes no signed or
+notarized releases of its own; prototype builds are the unsigned CI artifacts
+linked from [Project status](#project-status).
+
+Download the latest upstream release for your platform from
 [GitHub Releases](https://github.com/srelens/srelens/releases/latest).
 
 | Platform | Packages | Notes |
@@ -223,8 +249,8 @@ Example stdio configuration:
 ### Run locally
 
 ```sh
-git clone https://github.com/srelens/srelens
-cd srelens
+git clone https://github.com/1tuz/SmallSpace
+cd SmallSpace
 pnpm install
 pnpm dev
 ```
@@ -244,48 +270,68 @@ and instructions for adding capabilities.
 
 ## Architecture
 
-```text
-React 19 + TypeScript
-        │
-        │ Tauri commands and events
-        ▼
-Tauri v2 desktop shell
-        │
-        ▼
-Pure-Rust backend
-├── capability registry
-├── Kubernetes integration with kube-rs
-├── live watches, logs, exec, and port forwarding
-├── Helm and metrics
-└── MCP server over stdio and loopback HTTP
-```
+SmallSpace runs a React 19 workspace inside a Tauri v2 shell. The UI calls Tauri
+commands and receives events; the Rust side assembles a Tauri-free capability
+registry shared by the desktop host, the headless web host, and the MCP server.
+
+Kubernetes work goes through `crates/kube` and `crates/streams` — clients,
+watches, logs, exec, port forwarding, Helm, and metrics. Delivery work is
+provider-neutral: `crates/devops-model` defines anchors, entities, edges, and a
+`Trace`; the Jira, GitLab, Bitbucket, and Jenkins adapters return entities; and
+`crates/correlation` joins them with explicit evidence and confidence. A failed
+source stays in `sourceErrors` on a partial trace rather than becoming a fact
+about the cluster or pipeline.
+
+The primary composition is Home's My Work mosaic: summary, inbox, and inline
+Trace. Selecting a delivery fills the Trace region, which can maximize. The
+Deliveries screen keeps its list and selected Trace side by side, and Kubernetes
+opens as a contextual drill-down from a trace.
 
 Repository layout:
 
 ```text
-apps/desktop/
-  src/                   React and TypeScript desktop UI
-  src-tauri/             Tauri application and Rust command bridge
+apps/
+  desktop/              React workspace and Tauri v2 shell (src-tauri/)
+  tui/                  Terminal UI
+packages/
+  core/                 Shared TypeScript service layer and capability wrappers
+  ui-kit/               Design-system primitives
+  ui-next/              Next-design surfaces and routes
 crates/
-  capability/            Backend capability registry
-  kube/                  Kubernetes clients, watches, actions, Helm, and metrics
-  mcp/                   MCP server
-docs/                    Installation, usage, development, and project documentation
+  capability/           Capability and registry types
+  registry/             Capability assembly, catalog, and MCP kind resolution
+  kube/                 Kubernetes clients, watches, actions, Helm, and metrics
+  streams/              Exec, logs, port-forward, terminal, Helm, and watch streams
+  devops-model/         Provider-neutral delivery entities, edges, and Trace
+  correlation/          Anchor joins, evidence, situations, and trace capabilities
+  jira/                 Jira adapter
+  gitlab/               GitLab adapter
+  bitbucket/            Bitbucket adapter
+  jenkins/              Jenkins adapter
+  mcp/                  MCP server over stdio and loopback HTTP
+  server/               Headless web host
+docs/                   Installation, usage, development, and project documentation
 ```
 
 ## Project status
 
-srelens is **stable and in active development**, with regular releases for macOS,
-Linux, and Windows. macOS builds are Developer ID signed and notarized, and
-supported packages update in place through the in-app updater.
+Release status differs between this prototype and the upstream project.
 
-New capabilities land continuously, so the release notes are worth a glance when
-you upgrade. Feedback, bug reports, and reproducible troubleshooting details are
-always welcome.
+- **SmallSpace (this fork)** — prototype. CI builds unsigned desktop bundles for
+  local testing from
+  [Actions](https://github.com/1tuz/SmallSpace/actions/workflows/desktop-build.yml).
+  Signed releases and updater artifacts are not configured for this fork.
+- **Upstream srelens** — stable and in active development, with regular releases
+  for macOS, Linux, and Windows. macOS builds are Developer ID signed and
+  notarized, and supported packages update in place through the in-app updater.
 
-- [Latest release](https://github.com/srelens/srelens/releases/latest)
-- [All releases](https://github.com/srelens/srelens/releases)
-- [Issues and roadmap](https://github.com/srelens/srelens/issues)
+New upstream capabilities land continuously, so its release notes are worth a
+glance when you upgrade. Feedback, bug reports, and reproducible troubleshooting
+details are always welcome.
+
+- [Upstream latest release](https://github.com/srelens/srelens/releases/latest)
+- [Upstream releases](https://github.com/srelens/srelens/releases)
+- [Upstream issues and roadmap](https://github.com/srelens/srelens/issues)
 
 ## Community
 

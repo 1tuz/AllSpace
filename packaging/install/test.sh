@@ -346,10 +346,13 @@ out="$(sh "$script" --version "$version" 2>&1)" && rc=0 || rc=$?
 check "the release installs" "Installed: $dest/srelens-tui" "$out" "$rc" 0
 check "the checksum is reported, not assumed" "Checksum verified:" "$out" "$rc" 0
 
-if [ -x "$dest/srelens-tui" ] && "$dest/srelens-tui" --version >/dev/null 2>&1; then
-    ok "the installed binary runs: $("$dest/srelens-tui" --version)"
+if [ ! -x "$dest/srelens-tui" ]; then
+    no "the installed binary is missing or not executable: $dest/srelens-tui"
+elif run_out="$("$dest/srelens-tui" --version 2>&1)"; then
+    ok "the installed binary runs: $run_out"
 else
-    no "the installed binary does not run"
+    run_rc=$?
+    no "the installed binary does not run (exit $run_rc): $run_out"
 fi
 
 # Installing over an existing copy is the update path, and must not fail on
@@ -361,6 +364,70 @@ if [ -z "$(find "$dest" -name '.srelens-tui.install.*' -o -name '.srelens-tui.ba
 else
     no "a staging or backup file was left in $dest"
 fi
+
+# Simulate a launcher that rewrites itself and embeds its own directory.
+shim_home="$work/homes/shim"
+mkdir -p "$shim_home/.local/bin"
+shim="$work/shim"
+mkdir -p "$shim"
+cat > "$shim/srelens-tui" <<'SHIM'
+#!/bin/sh
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ ! -e "$dir/.srelens-test-helper" ]; then
+    mv "$0" "$dir/.srelens-test-helper"
+    {
+        echo '#!/bin/sh'
+        printf 'exec %s "$@"\n' "'$dir/.srelens-test-helper'"
+    } > "$0"
+    chmod 0755 "$0"
+    exec "$dir/.srelens-test-helper" "$@"
+fi
+echo "srelens-tui @VERSION@"
+SHIM
+sed "s/@VERSION@/$version/" "$shim/srelens-tui" > "$shim/srelens-tui.new" &&
+    mv "$shim/srelens-tui.new" "$shim/srelens-tui"
+chmod 0755 "$shim/srelens-tui"
+printf 'MIT\n' > "$shim/LICENSE"
+shimarchive="srelens-tui-$version-$host_target.tar.gz"
+(cd "$shim" && tar -czf "$work/fixtures/$shimarchive.shim" .)
+shimsum="$(sha256sum "$work/fixtures/$shimarchive.shim" | cut -d' ' -f1)"
+printf '%s  %s\n' "$shimsum" "$shimarchive" > "$work/fixtures/SHIMSUMS.txt"
+cp "$work/fake/curl" "$work/curl.before-shim"
+cat > "$work/fake/curl" <<EOF
+#!/bin/sh
+out=""; url=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -o) out="\$2"; shift 2 ;;
+    http*) url="\$1"; shift ;;
+    *) shift ;;
+  esac
+done
+case "\$url" in
+  *SHA256SUMS*) cp "$work/fixtures/SHIMSUMS.txt" "\$out" ;;
+  *.tar.gz)     cp "$work/fixtures/$shimarchive.shim" "\$out" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$work/fake/curl"
+
+out="$(HOME="$shim_home" PATH="$work/fake:$PATH" sh "$script" --version "$version" 2>&1)" && rc=0 || rc=$?
+check "a binary that stages itself still installs" "Installed:" "$out" "$rc" 0
+shim_bin="$(printf '%s\n' "$out" | sed -n 's/^Installed: //p' | head -n 1)"
+if [ -n "$shim_bin" ] && [ -x "$shim_bin" ] &&
+    "$shim_bin" >/dev/null 2>&1; then
+    ok "and the installed copy runs once the working tree is gone"
+else
+    no "the installed copy does not run once the working tree is gone"
+fi
+# The first run stages the real binary beside the wrapper, under the name the
+# fixture chose. Remove both so the destination is as this case found it:
+# reset_dest only knows `srelens-tui`.
+if [ -n "$shim_bin" ]; then
+    rm -f "$(dirname "$shim_bin")/.srelens-test-helper"
+fi
+reset_dest
+mv "$work/curl.before-shim" "$work/fake/curl"
 
 echo "how the docs say to run it"
 

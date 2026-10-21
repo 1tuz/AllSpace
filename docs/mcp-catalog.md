@@ -182,7 +182,7 @@ Argument schemas are not reproduced here — call `tools/list` for those, which 
 | `jenkins.getBuildLog` | read a bounded tail of a Jenkins build consoleText for the active DevOps profile |
 | `jenkins.listBuilds` | list builds of the active DevOps profile's Jenkins jobs |
 | `jira.getIssue` | read one Jira Data Center issue with bounded links and recent comments |
-| `jira.searchIssues` | search Jira Data Center issues by key through the active DevOps profile |
+| `jira.searchIssues` | search Jira Data Center issues by key (or recent updates when limit is set) through the active DevOps profile |
 | `ping` | health check; echoes the input back as { pong: <input> } |
 | `settings.get` | read durable desktop settings; omit key to return the complete map |
 

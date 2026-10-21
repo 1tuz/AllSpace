@@ -9,7 +9,11 @@
   product around My Work (widget mosaic with inline Trace) and master/detail
   Deliveries. Kubernetes remains both contextual runtime depth and a standalone
   explorer over the retained SRE Lens platform. The current desktop shell is
-  still a prototype.
+  still a prototype. The canonical repository is
+  <a href="https://github.com/1tuz/SmallSpace">1tuz/SmallSpace</a>;
+  unsigned development bundles are available in
+  <a href="https://github.com/1tuz/SmallSpace/actions/workflows/desktop-build.yml">Actions</a>.
+  The release and installation links below refer to the upstream project.
 </p>
 
 <p align="center">
@@ -40,7 +44,7 @@
   <a href="https://github.com/srelens/srelens/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/srelens/srelens/total?label=downloads&color=3b82f6"></a>
   <a href="https://aur.archlinux.org/packages/srelens-bin"><img alt="AUR version" src="https://img.shields.io/aur/version/srelens-bin?label=aur&logo=archlinux&logoColor=white&color=1793d1"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/srelens/srelens?color=675e80"></a>
-  <a href="https://github.com/srelens/srelens/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/srelens/srelens/actions/workflows/ci.yml/badge.svg?branch=dev"></a>
+  <a href="https://github.com/1tuz/SmallSpace/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/1tuz/SmallSpace/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/srelens/srelens"><img alt="OpenSSF Scorecard" src="https://api.scorecard.dev/projects/github.com/srelens/srelens/badge"></a>
 </p>
 

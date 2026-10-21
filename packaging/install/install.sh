@@ -168,8 +168,14 @@ main() {
     printf '#!/bin/sh\nexit 0\n' > "$tmp/exec-probe"
     chmod 0755 "$tmp/exec-probe"
     if "$tmp/exec-probe" 2>/dev/null; then
-        "$tmp/unpack/$BIN" --version >/dev/null 2>&1 ||
-            die "the downloaded binary does not run on this machine"
+        # A version check may rewrite its launcher; probe a copy so the installed file stays pristine.
+        mkdir "$tmp/probe" || die "cannot prepare a directory to test the binary in"
+        cp "$tmp/unpack/$BIN" "$tmp/probe/$BIN" ||
+            die "cannot copy the binary to test it"
+        chmod 0755 "$tmp/probe/$BIN"
+        probe_out="$("$tmp/probe/$BIN" --version 2>&1)" ||
+            die "the downloaded binary does not run on this machine: $probe_out"
+        rm -rf "$tmp/probe"
     else
         say "Note: $tmp is mounted noexec, so the binary is checked after it is installed."
     fi

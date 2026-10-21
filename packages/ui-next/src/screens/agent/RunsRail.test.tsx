@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RunsRail } from "./RunsRail";
 import { askAgent, getAgentRun, resetAgentRun } from "../../lib/agentRun";
 
-const { listSessions, loadSession, saveSession, deleteSession, listSkills, startChat, sendChat, listAgents } =
+const { listSessions, loadSession, saveSession, deleteSession, listSkills, loadSkill, saveSkill, deleteSkill, startChat, sendChat, listAgents } =
   vi.hoisted(() => ({
   listSessions: vi.fn(),
   loadSession: vi.fn(),
   saveSession: vi.fn(),
   deleteSession: vi.fn(),
   listSkills: vi.fn(),
+  loadSkill: vi.fn(),
+  saveSkill: vi.fn(),
+  deleteSkill: vi.fn(),
   startChat: vi.fn(),
   sendChat: vi.fn(),
   listAgents: vi.fn(),
@@ -22,6 +25,9 @@ vi.mock("@srelens/core", async (orig) => ({
   saveSession,
   deleteSession,
   listSkills,
+  loadSkill,
+  saveSkill,
+  deleteSkill,
   startChat,
   sendChat,
   listAgents,
@@ -33,6 +39,9 @@ beforeEach(() => {
   saveSession.mockResolvedValue(undefined);
   deleteSession.mockResolvedValue(undefined);
   listSkills.mockResolvedValue([]);
+  loadSkill.mockResolvedValue({ name: "", description: "", body: "" });
+  saveSkill.mockResolvedValue(undefined);
+  deleteSkill.mockResolvedValue(undefined);
   startChat.mockResolvedValue("sess-1");
   sendChat.mockResolvedValue(null);
   listAgents.mockResolvedValue([
@@ -191,6 +200,33 @@ describe("the agent screen's rail", () => {
 
     await userEvent.click(toggle);
     expect(getAgentRun().activeSkills).toEqual([]);
+  });
+
+  it("opens Manage skills into the CRUD panel, and refreshes the rail list after a save", async () => {
+    listSkills.mockResolvedValue([]);
+    render(<RunsRail />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /manage skills/i }));
+    expect(await screen.findByRole("heading", { name: "Skills" })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "New skill" }));
+    await userEvent.type(await screen.findByLabelText("Skill name"), "oom-triage");
+    await userEvent.type(screen.getByLabelText("Skill description"), "Memory pressure");
+    await userEvent.type(screen.getByLabelText("Skill body"), "Check limits.");
+
+    listSkills
+      .mockResolvedValueOnce([{ name: "oom-triage", description: "Memory pressure" }])
+      // Rail refresh after onChanged.
+      .mockResolvedValueOnce([{ name: "oom-triage", description: "Memory pressure" }]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveSkill).toHaveBeenCalled());
+    // Close the dialog so the rail is reachable again (modal marks it inert).
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    // Rail re-listed so the new skill sits beside its activate switch —
+    // not only inside the dialog.
+    expect(await screen.findByRole("switch", { name: /activate oom-triage/i })).toBeTruthy();
   });
 
   /**

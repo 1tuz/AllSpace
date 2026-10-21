@@ -35,6 +35,9 @@ concurrency:
 jobs:
   publish:
     name: publish AUR (srelens-bin)
+    # AUR is the original project's package. Manual dispatch in any other
+    # repository (including 1tuz/SmallSpace) must not reach it.
+    if: github.repository == 'srelens/srelens'
     runs-on: ubuntu-22.04
     # Do the AUR push ourselves rather than via a third-party action: an AUR
     # PKGBUILD executes arbitrary code on a user's machine at build time, so

@@ -364,6 +364,10 @@ export const PORTED_SCREENS: ReadonlyArray<{ route: string; name: string }> = [
   // this toggle lives on that side, so a reader weighing the switch is
   // weighing whether they can find their way back.
   { route: "/settings", name: "Settings" },
+  // Create flow — own route. Edit is parse-matched (`/edit/...`) in
+  // `screenFor`, not a fixed SCREENS key, so it is covered by the same
+  // family as resource details rather than a second PORTED row.
+  { route: "/new", name: "New resource" },
 ];
 
 /**

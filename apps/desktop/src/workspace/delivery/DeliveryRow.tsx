@@ -11,7 +11,15 @@ const LEVEL_WORD = {
   calm: "Calm",
 } as const;
 
-export function DeliveryRow({ delivery, onOpen }: { delivery: Delivery; onOpen: () => void }) {
+export function DeliveryRow({
+  delivery,
+  onOpen,
+  selected,
+}: {
+  delivery: Delivery;
+  onOpen: () => void;
+  selected?: boolean;
+}) {
   const verdict = deliveryVerdict(delivery);
   const level = deliveryVerdictLevel(delivery);
   const action = deliveryPrimaryAction(delivery);
@@ -21,7 +29,9 @@ export function DeliveryRow({ delivery, onOpen }: { delivery: Delivery; onOpen: 
       type="button"
       onClick={onOpen}
       aria-label={`Open delivery ${delivery.workId}: ${delivery.title}`}
-      className="workspace-dense-row flex w-full items-start gap-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      aria-current={selected ? "true" : undefined}
+      data-selected={selected ? "true" : undefined}
+      className={`workspace-dense-row flex w-full items-start gap-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring${selected ? " bg-muted/50" : ""}`}
       data-testid="delivery-row"
     >
       <div className="min-w-0 flex-1 flex flex-col gap-0.5">

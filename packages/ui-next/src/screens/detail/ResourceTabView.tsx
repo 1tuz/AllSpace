@@ -35,6 +35,7 @@ import {
   PANE_METRICS,
   PANE_YAML,
 } from "./detailData";
+import { PANE_RELATIONS } from "./RelationsBody";
 import type { DetailFact } from "./facts";
 
 export interface ResourceTabViewProps {
@@ -184,16 +185,17 @@ function TabFacts({ facts }: { facts: DetailFact[] }) {
  * through `detailData` and {@link DetailActions}. The two screens differ in
  * how a fact reads and cannot differ in what it says.
  *
- * Deferred, and deliberately not scaffolded: the right-hand agent rail, the
- * Relations and Drill tabs, and the ask bar across the bottom of the window.
- * Each needs something that does not exist yet, and a tab named after an empty
- * pane is worse than an absent one.
+ * Deferred chrome (not classic parity tabs): the right-hand agent rail and the
+ * ask bar across the bottom of the window. Drill (`DrillCard`) belongs with an
+ * incident feed, not this strip — see TODO Incidents / Drill. Relations is
+ * live for kinds classic WorkloadRelations covered. Metrics is live where the
+ * kind's descriptor sets `panes.metrics` (classic MetricsPanel kinds).
  */
 export function ResourceTabView({ context, kind, namespace, name }: ResourceTabViewProps) {
   const subject = useDetailSubject({ context, kind, namespace, name });
-  const { object, status, error, descriptor, statusLine, hasMetrics } = subject;
+  const { object, status, error, descriptor, statusLine, hasMetrics, hasRelations } = subject;
 
-  // THIS SCREEN'S STRIP: `Overview YAML Events Metrics`. Overview rather than
+  // THIS SCREEN'S STRIP: `Overview YAML Events Metrics Relations`. Overview rather than
   // the peek's Details, and no Containers tab at all — the design puts that
   // table inline, which a page has the room for and a 352px column does not.
   const tabs: TabItem[] = [
@@ -201,6 +203,7 @@ export function ResourceTabView({ context, kind, namespace, name }: ResourceTabV
     { id: PANE_YAML, label: "YAML" },
     { id: PANE_EVENTS, label: "Events" },
     ...(hasMetrics ? [{ id: PANE_METRICS, label: "Metrics" }] : []),
+    ...(hasRelations ? [{ id: PANE_RELATIONS, label: "Relations" }] : []),
   ];
   const { active, selectTab, yamlPane, eventsPane } = useDetailPaneState({
     context,
@@ -254,6 +257,7 @@ export function ResourceTabView({ context, kind, namespace, name }: ResourceTabV
       </>
     ) : null;
   if (active === PANE_METRICS) pane = subject.metricsPane;
+  else if (active === PANE_RELATIONS) pane = subject.relationsPane;
   else if (active === PANE_YAML) pane = yamlPane;
   else if (active === PANE_EVENTS) pane = eventsPane;
 

@@ -53,8 +53,8 @@ pub struct ListDeliveriesIn {
 pub type MyWorkIn = ListDeliveriesIn;
 
 /// `devops.listDeliveries` — bounded live Delivery summaries from active
-/// profile list capabilities (open/recent MRs, PRs, builds). Provider failures
-/// become `sourceErrors` + `partial`.
+/// profile list capabilities (open/recent MRs, PRs, builds, Jira issues).
+/// Provider failures become `sourceErrors` + `partial`.
 pub fn list_deliveries_capability(sources: ListSourceCaps) -> Capability {
     Capability::typed::<ListDeliveriesIn, DeliveryList, _, _>(
         "devops.listDeliveries",
@@ -96,6 +96,7 @@ pub async fn list_deliveries_live(
         && sources.bitbucket_prs.is_none()
         && sources.jenkins_builds.is_none()
         && sources.gitlab_pipelines.is_none()
+        && sources.jira_search.is_none()
     {
         push_unique_error(
             &mut source_errors,
@@ -157,15 +158,23 @@ pub async fn list_deliveries_live(
         }
     }
 
-    // Optional title enrichment for issue keys mentioned on changes — never
-    // required for Komus (no Jira). Bounded key set only.
+    // Jira: enrich keys mentioned on changes, or seed recent issues when the
+    // profile has Jira but no change-derived keys (issue-only contours).
+    // Never required for Komus (no Jira). Bounded key / limit set only.
     if let Some(jira) = &sources.jira_search {
         let keys = collect_issue_keys(&bundles.changes, MAX_JIRA_ENRICH_KEYS);
-        if !keys.is_empty() {
-            match call_entities(jira, json!({ "issueKeys": keys }), Source::Jira, "issues").await {
-                Ok(entities) => bundles.issues.extend(entities),
-                Err(error) => push_if_configured(&mut source_errors, error),
+        let payload = if keys.is_empty() {
+            json!({ "issueKeys": [], "limit": PER_SOURCE_ENTITY_CAP as u32 })
+        } else {
+            json!({ "issueKeys": keys })
+        };
+        match call_entities(jira, payload, Source::Jira, "issues").await {
+            Ok(entities) => {
+                bundles
+                    .issues
+                    .extend(entities.into_iter().take(PER_SOURCE_ENTITY_CAP));
             }
+            Err(error) => push_if_configured(&mut source_errors, error),
         }
     }
 
@@ -199,6 +208,7 @@ fn summarize_bundles(
     list_errors: &[SourceError],
 ) -> Vec<DeliverySummary> {
     let mut used_build_ids = std::collections::BTreeSet::new();
+    let mut used_work_ids = std::collections::BTreeSet::new();
     let mut rows = Vec::new();
 
     for change in &bundles.changes {
@@ -220,7 +230,11 @@ fn summarize_bundles(
                 used_build_ids.insert(node.id.clone());
             }
         }
-        rows.push(summary_from_trace(change, &anchor, &trace, list_errors));
+        let summary = summary_from_trace(change, &anchor, &trace, list_errors);
+        if let Some(work_id) = &summary.work_id {
+            used_work_ids.insert(work_id.to_ascii_uppercase());
+        }
+        rows.push(summary);
     }
 
     for build in &bundles.builds {
@@ -240,7 +254,35 @@ fn summarize_bundles(
             source_errors: list_errors.to_vec(),
         };
         let trace = join_delivery_from_anchor(&anchor, seed_bundles);
-        rows.push(summary_from_trace(build, &anchor, &trace, list_errors));
+        let summary = summary_from_trace(build, &anchor, &trace, list_errors);
+        if let Some(work_id) = &summary.work_id {
+            used_work_ids.insert(work_id.to_ascii_uppercase());
+        }
+        rows.push(summary);
+    }
+
+    // Issue→row seed: Jira entities that did not already appear as a change/build
+    // workId become their own Delivery summaries (issue-only profiles).
+    for issue in &bundles.issues {
+        let Some(anchor) = issue_anchor(issue) else {
+            continue;
+        };
+        let key = anchor.value().to_ascii_uppercase();
+        if used_work_ids.contains(&key) {
+            continue;
+        }
+        let seed_bundles = DeliveryBundles {
+            issues: vec![issue.clone()],
+            changes: bundles.changes.clone(),
+            commits: bundles.commits.clone(),
+            builds: bundles.builds.clone(),
+            artifacts: bundles.artifacts.clone(),
+            workloads: bundles.workloads.clone(),
+            source_errors: list_errors.to_vec(),
+        };
+        let trace = join_delivery_from_anchor(&anchor, seed_bundles);
+        used_work_ids.insert(key);
+        rows.push(summary_from_trace(issue, &anchor, &trace, list_errors));
     }
 
     sort_summaries(&mut rows);
@@ -337,7 +379,15 @@ fn stage_from_seed_and_trace(seed: &Entity, trace: &Trace) -> (String, String) {
                 ("in_progress".into(), format!("Build {status}"))
             }
         }
-        EntityKind::Issue => ("in_progress".into(), "In progress".into()),
+        EntityKind::Issue => {
+            let status = attr_str(seed, "status").unwrap_or("In progress");
+            let lower = status.to_ascii_lowercase();
+            if lower == "done" || lower == "closed" || lower == "resolved" {
+                ("delivered".into(), status.to_string())
+            } else {
+                ("in_progress".into(), status.to_string())
+            }
+        }
         _ => ("in_progress".into(), seed.title.clone()),
     }
 }
@@ -357,6 +407,26 @@ fn work_id_from_seed(seed: &Entity, nodes: &[Entity]) -> Option<String> {
     collect_issue_keys(std::slice::from_ref(seed), 1)
         .into_iter()
         .next()
+}
+
+fn issue_anchor(issue: &Entity) -> Option<DeliveryAnchor> {
+    let value = attr_str(issue, "key")
+        .map(str::to_string)
+        .or_else(|| {
+            issue
+                .id
+                .strip_prefix("jira:issue:")
+                .map(str::to_string)
+        })
+        .or_else(|| issue.id.strip_prefix("jira:").map(str::to_string))?;
+    if value.is_empty() || value.contains('/') {
+        return None;
+    }
+    let source = match issue.source {
+        Source::Jira => Some("jira".into()),
+        _ => None,
+    };
+    Some(DeliveryAnchor::Issue { value, source })
 }
 
 fn change_anchor(change: &Entity) -> Option<DeliveryAnchor> {
@@ -405,6 +475,9 @@ fn collect_issue_keys(entities: &[Entity], max: usize) -> Vec<String> {
             for anchor in suggest_anchors(&haystack) {
                 if let DeliveryAnchor::Issue { value, .. } = anchor {
                     let key = value.to_ascii_uppercase();
+                    if key.is_empty() || key.contains('/') {
+                        continue;
+                    }
                     if !keys.iter().any(|existing| existing == &key) {
                         keys.push(key);
                         if keys.len() >= max {
@@ -534,6 +607,60 @@ mod tests {
             .source_errors
             .iter()
             .any(|error| error.source == Source::Workspace));
+    }
+
+    #[tokio::test]
+    async fn jira_only_profile_seeds_issue_delivery_rows() {
+        let jira = Capability::read_only("jira.searchIssues", "", |input| async move {
+            // Issue-only list calls with empty keys + limit — never invent rows
+            // from a missing provider answer.
+            assert!(input.get("issueKeys").and_then(|v| v.as_array()).is_some_and(|a| a.is_empty()));
+            assert_eq!(input.get("limit").and_then(|v| v.as_u64()), Some(30));
+            Ok(json!({
+                "issues": [{
+                    "id": "jira:issue:OPS-142",
+                    "kind": "issue",
+                    "source": "jira",
+                    "title": "Cache invalidation",
+                    "url": "https://jira.example/browse/OPS-142",
+                    "attributes": {
+                        "key": "OPS-142",
+                        "status": "In Progress",
+                        "projectKey": "OPS",
+                        "remoteLinks": [{
+                            "title": "Runbook",
+                            "url": "https://confluence.example/pages/runbook"
+                        }]
+                    }
+                }]
+            }))
+        });
+        let out = list_deliveries_live(
+            &ListSourceCaps {
+                jira_search: Some(jira),
+                ..Default::default()
+            },
+            &ListDeliveriesIn {
+                profile_id: Some("appfarm".into()),
+                limit: Some(10),
+            },
+            ListMode::All,
+        )
+        .await;
+
+        assert_eq!(out.deliveries.len(), 1, "jira-only must yield issue rows");
+        assert_eq!(out.deliveries[0].id, "jira:issue:OPS-142");
+        assert_eq!(out.deliveries[0].work_id.as_deref(), Some("OPS-142"));
+        assert_eq!(out.deliveries[0].title, "Cache invalidation");
+        assert_eq!(
+            out.deliveries[0].anchor,
+            DeliveryAnchor::Issue {
+                value: "OPS-142".into(),
+                source: Some("jira".into()),
+            }
+        );
+        assert!(!out.partial);
+        assert!(out.source_errors.is_empty());
     }
 
     #[tokio::test]

@@ -28,7 +28,8 @@ export function FirstRunScreen({
       <h1 className="mt-2 text-2xl font-semibold">Set up your engineering workspace</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">
         Choose a contour to save public endpoints. Configure only the providers you use in Connections;
-        credentials stay in the encrypted vault, never in the profile. Cluster selection happens inside Kubernetes.
+        credentials stay encrypted on this device, never in the profile. Cluster selection happens inside
+        Kubernetes.
       </p>
       <div className="mt-8 grid max-w-3xl gap-3" role="radiogroup" aria-label="Contour">
         {CONTOUR_PRESETS.map((contour) => (

@@ -808,7 +808,7 @@ describe("Connect", () => {
       expect(strip.querySelector("svg")).toBeTruthy();
       expect(
         within(strip).getByText(
-          "srelens reads each cluster directly, with the credentials already in your kubeconfig, and never copies or uploads that file. Connect an agent to srelens over MCP and it can read this list, and the clusters on it, without asking first; every change it makes stops at a confirmation prompt. Asking the console about a cluster in plain language is not in this design yet.",
+          "srelens reads each cluster directly, with the credentials already in your kubeconfig, and never copies or uploads that file. Connect an agent to srelens over MCP and it can read this list, and the clusters on it, without asking first; every change it makes stops at a confirmation prompt.",
         ),
       ).toBeTruthy();
     });
@@ -841,17 +841,15 @@ describe("Connect", () => {
 
     /**
      * The strip used to promise "ask the console about it in plain language.
-     * srelens reads the cluster to answer" — and the console answers nothing
-     * in this design: `shell/Console.tsx` renders "The agent is not in the new
-     * design yet". Pinned as the absence of the promise, because the honest
-     * replacement is a sentence a future edit could drop while re-adding the
-     * old one.
+     * srelens reads the cluster to answer". Agent Console is wired now, but
+     * the footer still must not revive that conversational promise — it only
+     * states how srelens reaches the API.
      */
-    it("does not promise a console that answers", async () => {
+    it("does not promise a conversational console answer in the footer", async () => {
       core.isTauri.mockReturnValue(true);
       const strip = (open(), await screen.findByTestId("connect-footer"));
       expect(within(strip).queryByText(/reads the cluster to answer/)).toBeNull();
-      expect(within(strip).getByText(/not in this design yet/)).toBeTruthy();
+      expect(within(strip).queryByText(/not in this design yet/)).toBeNull();
     });
 
     it("does not call the server's kubeconfig the reader's", async () => {
@@ -859,7 +857,7 @@ describe("Connect", () => {
       expect(within(strip).queryByText(/your kubeconfig/)).toBeNull();
       expect(
         within(strip).getByText(
-          "srelens reads each cluster directly from this server, with the credentials in the kubeconfig it was started with. Asking the console about a cluster in plain language is not in this design yet.",
+          "srelens reads each cluster directly from this server, with the credentials in the kubeconfig it was started with.",
         ),
       ).toBeTruthy();
     });

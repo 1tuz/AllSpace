@@ -370,10 +370,11 @@ suite("screenFor", () => {
     expect(screenFor("/topology")).toBe(Topology);
   });
 
-  it("gives a route with no screen a placeholder", () => {
-    for (const route of ["/incidents"]) {
-      expect(screenFor(route), route).toBeNull();
-    }
+  it("leaves /incidents without a screen until the product feed exists", () => {
+    // Nav no longer offers the route (tree.ts INVESTIGATE); describe() still
+    // titles a persisted tab. No Kubernetes API returns incident titles,
+    // severity or trend — Overview's OpenIncidents states the same absence.
+    expect(screenFor("/incidents")).toBeNull();
   });
 
   it("resolves a built-in kind's list route", () => {

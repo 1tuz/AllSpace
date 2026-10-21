@@ -30,6 +30,19 @@ vi.mock("@srelens/core", async (importOriginal) => ({
   getSecret,
 }));
 
+vi.mock("@srelens/core/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@srelens/core/react")>();
+  return {
+    ...actual,
+    useAccess: vi.fn(() => ({
+      allowed: () => true,
+      reason: () => "",
+      known: () => true,
+      loading: false,
+    })),
+  };
+});
+
 import userEvent from "@testing-library/user-event";
 import { KV, Section } from "@srelens/ui-kit";
 import { Section as DetailSection } from "./Section";
@@ -127,28 +140,25 @@ describe("GenericBody", () => {
   });
 
   describe("a kind with no specific body", () => {
-    // Lease has no `DETAILS_BODY` entry in `ResourceDetailView` and is not one of
-    // `SELF_DESCRIBING_KINDS` — exactly the ~23-kind case this task exists
-    // to fix: no `children` at all, the wrapper alone must be a complete,
-    // correct detail.
-    const LEASE = object(
-      "Lease",
+    // Namespace has no `DETAILS_BODY` entry and is not one of
+    // `SELF_DESCRIBING_KINDS` — the wrapper alone (no `children`) must still
+    // be a complete, correct detail for kinds classic also left as GenericDetail.
+    const NS = object(
+      "Namespace",
       {},
       {},
       {
-        name: "lease-1",
-        namespace: "kube-node-lease",
+        name: "ns-1",
         creationTimestamp: "2026-08-20T00:00:00Z",
         labels: { app: "controller" },
-        annotations: { "kubectl.kubernetes.io/note": "renewed automatically" },
-        ownerReferences: [{ kind: "Node", name: "node-a" }],
+        annotations: { "kubectl.kubernetes.io/note": "team owned" },
+        ownerReferences: [{ kind: "Project", name: "proj-a" }],
       },
     );
 
     it("derives every identity fact, with cross-resource references as plain text", () => {
-      renderFacts("Lease", LEASE);
-      expect(screen.getByText("kube-node-lease")).toBeDefined();
-      expect(screen.getByText("Node/node-a")).toBeDefined();
+      renderFacts("Namespace", NS);
+      expect(screen.getByText("Project/proj-a")).toBeDefined();
 
       // Namespace and Controlled by are `ResourceLink`/`LinkedResources` in
       // classic that navigate; nothing here can (`PaneBody` has no
@@ -161,27 +171,27 @@ describe("GenericBody", () => {
       // The pane's own header has already named the subject; a "Metadata"
       // bar above the first list is a second name for it. There is no title
       // to give it either: the list is data, and neither screen heads it.
-      renderFacts("Lease", LEASE);
+      renderFacts("Namespace", NS);
       expect(screen.queryByText("Metadata")).toBeNull();
       expect(screen.queryByRole("heading", { name: "Metadata" })).toBeNull();
     });
 
     it("drops Name, which repeats the header verbatim", () => {
-      renderFacts("Lease", LEASE);
+      renderFacts("Namespace", NS);
       expect(screen.queryByText("Name")).toBeNull();
-      expect(screen.queryByText("lease-1")).toBeNull();
+      expect(screen.queryByText("ns-1")).toBeNull();
     });
 
     it("dates the object by age alone, not age plus an absolute stamp", () => {
-      renderFacts("Lease", LEASE);
+      renderFacts("Namespace", NS);
       expect(screen.getByText(/^\d+[smhd] ago$/)).toBeDefined();
       expect(screen.queryByText(/ago \(/)).toBeNull();
     });
 
     it("omits absent identity facts rather than showing them empty", () => {
-      const bare = object("Lease", {}, {}, { name: "bare-lease" });
-      const { container } = renderFacts("Lease", bare);
-      expect(detailFacts({ kind: "Lease", object: bare })).toEqual([]);
+      const bare = object("Namespace", {}, {}, { name: "bare-ns" });
+      const { container } = renderFacts("Namespace", bare);
+      expect(detailFacts({ kind: "Namespace", object: bare })).toEqual([]);
       // And no block at all rather than an empty one, which would still have
       // its padding and still rule against whatever followed it.
       expect(container.querySelector("section.section")).toBeNull();
@@ -459,6 +469,118 @@ describe("every real DETAILS_BODY entry lands in an unbroken run", () => {
     CronJob: object("CronJob", { schedule: "0 2 * * *" }, {}),
     ConfigMap: { ...object("ConfigMap", {}, {}), data: { "app.conf": "k=v" } } as K8sObject,
     Secret: { ...object("Secret", {}, {}), type: "Opaque", data: { token: "cmVkYWN0ZWQ=" } } as K8sObject,
+    Ingress: object("Ingress", {
+      ingressClassName: "nginx",
+      rules: [{ host: "app.example", http: { paths: [{ path: "/", backend: { service: { name: "web", port: { number: 80 } } } }] } }],
+    }),
+    PersistentVolumeClaim: object(
+      "PersistentVolumeClaim",
+      { accessModes: ["ReadWriteOnce"], storageClassName: "fast", volumeName: "pv-1" },
+      { phase: "Bound", capacity: { storage: "10Gi" } },
+    ),
+    PersistentVolume: object(
+      "PersistentVolume",
+      {
+        capacity: { storage: "10Gi" },
+        accessModes: ["ReadWriteOnce"],
+        persistentVolumeReclaimPolicy: "Retain",
+        volumeMode: "Filesystem",
+        csi: { driver: "ebs.csi.aws.com" },
+        storageClassName: "fast",
+        claimRef: { namespace: "default", name: "data" },
+      },
+      { phase: "Bound" },
+      { name: "pv-1" },
+    ),
+    HorizontalPodAutoscaler: object(
+      "HorizontalPodAutoscaler",
+      { scaleTargetRef: { kind: "Deployment", name: "web" }, minReplicas: 1, maxReplicas: 5 },
+      { currentReplicas: 2, desiredReplicas: 3 },
+    ),
+    NetworkPolicy: object("NetworkPolicy", {
+      podSelector: { matchLabels: { app: "web" } },
+      policyTypes: ["Ingress"],
+      ingress: [{}],
+    }),
+    ServiceAccount: {
+      ...object("ServiceAccount", {}, {}),
+      secrets: [{ name: "sa-token" }],
+      imagePullSecrets: [{ name: "regcred" }],
+    } as K8sObject,
+    ResourceQuota: object("ResourceQuota", {}, { hard: { pods: "10" }, used: { pods: "3" } }),
+    PodDisruptionBudget: object(
+      "PodDisruptionBudget",
+      { minAvailable: 1 },
+      { currentHealthy: 2, desiredHealthy: 2, disruptionsAllowed: 1 },
+    ),
+    Endpoints: {
+      ...object("Endpoints", {}, {}),
+      subsets: [
+        {
+          addresses: [{ ip: "10.0.0.1", targetRef: { kind: "Pod", name: "web-0", namespace: "default" } }],
+          ports: [{ port: 80, protocol: "TCP" }],
+        },
+      ],
+    } as K8sObject,
+    EndpointSlice: {
+      ...object("EndpointSlice", {}, {}),
+      addressType: "IPv4",
+      endpoints: [{ addresses: ["10.0.0.2"], targetRef: { kind: "Pod", name: "web-1" } }],
+      ports: [{ port: 8080, protocol: "TCP" }],
+    } as K8sObject,
+    Role: {
+      ...object("Role", {}, {}),
+      rules: [{ apiGroups: [""], resources: ["pods"], verbs: ["get", "list"] }],
+    } as K8sObject,
+    ClusterRole: {
+      ...object("ClusterRole", {}, {}, { name: "view", namespace: undefined }),
+      rules: [{ apiGroups: ["*"], resources: ["*"], verbs: ["get"] }],
+    } as K8sObject,
+    RoleBinding: {
+      ...object("RoleBinding", {}, {}),
+      roleRef: { kind: "Role", name: "edit" },
+      subjects: [{ kind: "ServiceAccount", name: "default", namespace: "default" }],
+    } as K8sObject,
+    ClusterRoleBinding: {
+      ...object("ClusterRoleBinding", {}, {}, { name: "admin", namespace: undefined }),
+      roleRef: { kind: "ClusterRole", name: "cluster-admin" },
+      subjects: [{ kind: "User", name: "alice" }],
+    } as K8sObject,
+    PriorityClass: {
+      ...object("PriorityClass", {}, {}, { name: "high", namespace: undefined }),
+      value: 1000,
+      globalDefault: false,
+      preemptionPolicy: "PreemptLowerPriority",
+    } as K8sObject,
+    StorageClass: {
+      ...object("StorageClass", {}, {}, { name: "fast", namespace: undefined }),
+      provisioner: "ebs.csi.aws.com",
+      reclaimPolicy: "Delete",
+      volumeBindingMode: "WaitForFirstConsumer",
+      allowVolumeExpansion: true,
+    } as K8sObject,
+    RuntimeClass: {
+      ...object("RuntimeClass", {}, {}, { name: "gvisor", namespace: undefined }),
+      handler: "runsc",
+    } as K8sObject,
+    IngressClass: object("IngressClass", { controller: "k8s.io/ingress-nginx" }, {}, { name: "nginx", namespace: undefined }),
+    LimitRange: object("LimitRange", {
+      limits: [{ type: "Container", default: { cpu: "100m" }, max: { memory: "1Gi" } }],
+    }),
+    Lease: object(
+      "Lease",
+      { holderIdentity: "node-a", leaseDurationSeconds: 15, renewTime: "2026-08-20T00:00:00Z" },
+      {},
+      { name: "node-a", namespace: "kube-node-lease" },
+    ),
+    MutatingWebhookConfiguration: {
+      ...object("MutatingWebhookConfiguration", {}, {}, { name: "mutate", namespace: undefined }),
+      webhooks: [{ name: "mutate.example.com" }],
+    } as K8sObject,
+    ValidatingWebhookConfiguration: {
+      ...object("ValidatingWebhookConfiguration", {}, {}, { name: "validate", namespace: undefined }),
+      webhooks: [{ name: "validate.example.com" }],
+    } as K8sObject,
   };
 
   it("covers every entry in the table, so the sweep cannot silently shrink", () => {

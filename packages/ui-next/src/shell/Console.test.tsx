@@ -8,8 +8,14 @@ import { resetContexts, setContexts } from "../lib/clusters";
 import { defaultState } from "../lib/tabs";
 import { logsRoute } from "../screens/Logs";
 import * as tabsStore from "../lib/tabsStore";
+import {
+  __resetResourceHandoffForTests,
+  peekAction,
+  peekForward,
+  peekShell,
+} from "../lib/resourceHandoff";
 import { lockWorkspace, resetLock, __setKnownVaultMode } from "./LockGate";
-import type { ClusterContext } from "@srelens/core";
+import type { ClusterContext, ResourceRow } from "@srelens/core";
 import { __setVaultPasswordGateEnabledForTests } from "@srelens/core";
 
 const {
@@ -59,12 +65,14 @@ vi.mock("../lib/agentRun", () => ({
 // `api_command.rs` has no `chat_*` arm. jsdom is not Tauri, so without this
 // every test below would be asserting about a dock that correctly renders
 // nothing. The web case has its own test.
-const { isTauri, listAgents, isApplePlatform } = vi.hoisted(() => ({
+const { isTauri, listAgents, isApplePlatform, listResource, listCrds } = vi.hoisted(() => ({
   isTauri: vi.fn(() => true),
   listAgents: vi.fn(),
   // `apple` comes from the PROVIDER now, which derives it rather than taking a
   // prop — so the platform is mocked here instead of passed to `setup`.
   isApplePlatform: vi.fn(() => true),
+  listResource: vi.fn(async (_context: string, _kind: string, _namespace: string | null): Promise<{ items?: ResourceRow[]; error?: string }> => ({ items: [] })),
+  listCrds: vi.fn(async () => ({ crds: [] as unknown[] })),
 }));
 /**
  * `readImageFile` is mocked so a test can hold a read OPEN — the race between
@@ -85,6 +93,8 @@ vi.mock("@srelens/core", async (orig) => ({
   isTauri,
   listAgents,
   isApplePlatform,
+  listResource,
+  listCrds,
 }));
 
 /** The store's shape, defaulted to idle-and-empty — every test overrides only
@@ -147,6 +157,7 @@ beforeEach(() => {
   // The active cluster comes from the tabs store, so the workspace has to hold
   // it for `useActiveContext` to resolve.
   tabsStore.setState(defaultState([HARNESS_CTX]));
+  __resetResourceHandoffForTests();
   __setVaultPasswordGateEnabledForTests(true);
   resetLock();
   isTauri.mockReturnValue(true);
@@ -154,6 +165,8 @@ beforeEach(() => {
   listAgents.mockResolvedValue([
     { kind: "claude", label: "Claude Code", available: true, gated: false, path: "/c", version: "1", installUrl: "" },
   ]);
+  listResource.mockReset().mockResolvedValue({ items: [] });
+  listCrds.mockReset().mockResolvedValue({ crds: [] });
   // Saying `isTauri` is true means a vault EXISTS, and a fresh lock store has
   // read no mode — which counts as covered, so `sealed` would hide the dock
   // for a reason that has nothing to do with the test. Same beforeEach line,
@@ -1143,23 +1156,44 @@ describe("Console — debt 2's real navigation", () => {
     expect(tab?.sub).toBe("prod-eu");
   });
 
-  it("Open a shell reaches Terminals — generic navigation, per debt 2's resolution", async () => {
+  it("Open shell offers the pod to Terminals and opens the tab with the cluster pin", async () => {
     const user = userEvent.setup();
+    const contexts = [ctx("prod", "prod-eu")];
+    setContexts(contexts);
+    tabsStore.setState(defaultState(contexts));
     tabsStore.openTab("/k/Pod/checkout/api-0");
     setup();
-    await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "/open a shell{Enter}");
+    await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "/open shell{Enter}");
     expect(tabsStore.activeRoute()).toBe("/terminals");
+    const tab = tabsStore.currentWorkspace().tabs.find((t) => t.route === "/terminals");
+    expect(tab?.sub).toBe("prod-eu");
+    expect(peekShell()).toEqual({
+      context: "prod-eu",
+      namespace: "checkout",
+      pod: "api-0",
+    });
   });
 
-  it("Port forward reaches Forwards — generic navigation, per debt 2's resolution", async () => {
+  it("Port forward offers the pod to Forwards and opens the tab with the cluster pin", async () => {
     const user = userEvent.setup();
+    const contexts = [ctx("prod", "prod-eu")];
+    setContexts(contexts);
+    tabsStore.setState(defaultState(contexts));
     tabsStore.openTab("/k/Pod/checkout/api-0");
     setup();
     await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "/port forward{Enter}");
     expect(tabsStore.activeRoute()).toBe("/forwards");
+    const tab = tabsStore.currentWorkspace().tabs.find((t) => t.route === "/forwards");
+    expect(tab?.sub).toBe("prod-eu");
+    expect(peekForward()).toEqual({
+      context: "prod-eu",
+      namespace: "checkout",
+      kind: "Pod",
+      name: "api-0",
+    });
   });
 
-  it("an Action command opens the detail route with the resource's identity and the cluster", async () => {
+  it("an Action command offers the verb and opens the detail route with the cluster pin", async () => {
     const user = userEvent.setup();
     const contexts = [ctx("prod", "prod-eu")];
     setContexts(contexts);
@@ -1173,6 +1207,124 @@ describe("Console — debt 2's real navigation", () => {
     expect(tabsStore.activeRoute()).toBe("/k/Deployment/checkout/api");
     const tab = tabsStore.currentWorkspace().tabs.find((t) => t.route === "/k/Deployment/checkout/api");
     expect(tab?.sub).toBe("prod-eu");
+    expect(peekAction()).toEqual({
+      context: "prod-eu",
+      kind: "Deployment",
+      namespace: "checkout",
+      name: "api",
+      action: "restart",
+    });
+  });
+
+  it("Delete from `/` offers the intent without mutating — confirm lives on the detail", async () => {
+    const user = userEvent.setup();
+    const contexts = [ctx("prod", "prod-eu")];
+    setContexts(contexts);
+    tabsStore.setState(defaultState(contexts));
+    tabsStore.openTab("/k/Deployment/checkout/api");
+    setup();
+    await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "/delete{Enter}");
+    expect(peekAction()).toEqual({
+      context: "prod-eu",
+      kind: "Deployment",
+      namespace: "checkout",
+      name: "api",
+      action: "delete",
+    });
+    expect(tabsStore.activeRoute()).toBe("/k/Deployment/checkout/api");
+  });
+});
+
+/**
+ * Classic CommandPalette parity MVP: `/` finds a resource by name, drills
+ * into KindActions for it (Open details / Follow logs), without a second
+ * modal. Index comes from `listResource`; hits are the Resource group.
+ */
+describe("Console — resource palette drill", () => {
+  it("lists a matching resource from the cluster index under Resource", async () => {
+    const user = userEvent.setup();
+    listResource.mockImplementation(async (_c: string, kind: string) => {
+      if (kind === "Pod") return { items: [{ name: "checkout-api-0", namespace: "checkout", age: "1d" }] };
+      return { items: [] };
+    });
+    setup();
+    await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "/checkout-api");
+    expect(await screen.findByText("checkout-api-0 · Pod · checkout")).toBeTruthy();
+    expect(screen.getByText(/^Resource$/)).toBeTruthy();
+  });
+
+  it("drills into the hit, then Open details lands on the resource tab", async () => {
+    const user = userEvent.setup();
+    const contexts = [ctx("prod", "prod-eu")];
+    setContexts(contexts);
+    tabsStore.setState(defaultState(contexts));
+    listResource.mockImplementation(async (_c: string, kind: string) => {
+      if (kind === "Deployment") return { items: [{ name: "api", namespace: "checkout", age: "1d" }] };
+      return { items: [] };
+    });
+    // Start off a resource route so Open details is clearly the drill's own
+    // navigation, not the route-scoped Action/Go path.
+    tabsStore.openTab("/settings");
+    setup();
+    await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "/api");
+    await user.click(await screen.findByText("api · Deployment · checkout"));
+    expect(await screen.findByText(/^Actions · api$/)).toBeTruthy();
+    await user.click(await screen.findByText("Open Deployment/api"));
+    expect(tabsStore.activeRoute()).toBe("/k/Deployment/checkout/api");
+    const tab = tabsStore.currentWorkspace().tabs.find((t) => t.route === "/k/Deployment/checkout/api");
+    expect(tab?.sub).toBe("prod-eu");
+  });
+
+  it("Follow logs after a search drill opens the real logs route", async () => {
+    const user = userEvent.setup();
+    const contexts = [ctx("prod", "prod-eu")];
+    setContexts(contexts);
+    tabsStore.setState(defaultState(contexts));
+    listResource.mockImplementation(async (_c: string, kind: string) => {
+      if (kind === "Pod") return { items: [{ name: "api-0", namespace: "checkout", age: "1d" }] };
+      return { items: [] };
+    });
+    tabsStore.openTab("/settings");
+    setup();
+    await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "/api-0");
+    await user.click(await screen.findByText("api-0 · Pod · checkout"));
+    await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "follow logs{Enter}");
+    expect(tabsStore.activeRoute()).toBe("/logs/Pod/checkout/api-0");
+  });
+
+  it("on bare / shows Go to kinds from the nav, pinned to the active cluster", async () => {
+    const user = userEvent.setup();
+    const contexts = [ctx("prod", "prod-eu")];
+    setContexts(contexts);
+    tabsStore.setState(defaultState(contexts));
+    setup();
+    await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "/");
+    expect(await screen.findByText("Go to Pods")).toBeTruthy();
+    await user.click(screen.getByText("Go to Pods"));
+    expect(tabsStore.activeRoute()).toBe("/k/pods");
+    const tab = tabsStore.currentWorkspace().tabs.find((t) => t.route === "/k/pods");
+    expect(tab?.sub).toBe("prod-eu");
+  });
+
+  it("filters a CRD under Go to when the query matches its kind", async () => {
+    const user = userEvent.setup();
+    listCrds.mockResolvedValue({
+      crds: [
+        {
+          name: "certificates.cert-manager.io",
+          group: "cert-manager.io",
+          version: "v1",
+          kind: "Certificate",
+          plural: "certificates",
+          namespaced: true,
+        },
+      ],
+    });
+    setup();
+    await user.type(screen.getByRole("textbox", { name: "Console prompt" }), "/cert");
+    expect(await screen.findByText("Go to Certificate (CRD)")).toBeTruthy();
+    await user.click(screen.getByText("Go to Certificate (CRD)"));
+    expect(tabsStore.activeRoute()).toBe("/k/certificates.cert-manager.io");
   });
 });
 

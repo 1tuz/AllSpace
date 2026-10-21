@@ -8,18 +8,23 @@ export function DeliveryHeader({
   originLabel,
   error,
   onBack,
+  backLabel = "← Deliveries",
 }: {
   view: DeliveryViewModel;
   originLabel: string;
   error: string | null;
-  onBack: () => void;
+  /** Omit when ContextualTopBar already owns Back. */
+  onBack?: () => void;
+  backLabel?: string;
 }) {
   return (
     <header className="shrink-0 border-b border-border px-4 py-3" data-testid="delivery-header">
-      <Button variant="ghost" size="xs" onClick={onBack}>
-        ← Deliveries
-      </Button>
-      <p className="mt-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+      {onBack ? (
+        <Button variant="ghost" size="xs" onClick={onBack}>
+          {backLabel}
+        </Button>
+      ) : null}
+      <p className={`text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground${onBack ? " mt-2" : ""}`}>
         Delivery
       </p>
       <h1 className="mt-0.5 text-lg font-semibold tracking-tight">

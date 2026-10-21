@@ -1,14 +1,25 @@
 import { useEffect, useId, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { devopsSearch, type DeliveryAnchor } from "@srelens/core";
+import {
+  devopsSearch,
+  devopsTraceDelivery,
+  type DeliveryAnchor,
+} from "@srelens/core";
 import { TextInput } from "../ui";
 import {
   deliveryPasteLabel,
   parseDeliveryPaste,
 } from "./parseDeliveryPaste";
+import {
+  explorePaletteLabel,
+  runtimeHandoffKey,
+  runtimeHandoffsFromNodes,
+  type RuntimeHandoff,
+} from "./runtimeHandoff";
 
 export type PaletteAction =
   | { kind: "delivery"; id: string; label: string }
   | { kind: "anchor"; anchor: DeliveryAnchor; label: string }
+  | { kind: "explore"; target: RuntimeHandoff; label: string }
   | {
       kind: "nav";
       route: "home" | "deliveries" | "workspace" | "connections" | "settings" | "kubernetes";
@@ -23,11 +34,18 @@ const NAV_ACTIONS: PaletteAction[] = [
   { kind: "nav", route: "settings", label: "Go to Settings" },
 ];
 
+/** Cap concurrent traces from search hits — palette stays responsive. */
+const MAX_SEARCH_RUNTIME_ANCHORS = 3;
+
 function pasteAction(query: string): PaletteAction | null {
   const anchor = parseDeliveryPaste(query);
   if (!anchor) return null;
   const label = deliveryPasteLabel(anchor);
   return { kind: "anchor", anchor, label };
+}
+
+function exploreAction(target: RuntimeHandoff): PaletteAction {
+  return { kind: "explore", target, label: explorePaletteLabel(target) };
 }
 
 function anchorKey(anchor: DeliveryAnchor): string {
@@ -37,7 +55,20 @@ function anchorKey(anchor: DeliveryAnchor): string {
 function actionKey(action: PaletteAction): string {
   if (action.kind === "delivery") return `delivery:${action.id}:${action.label}`;
   if (action.kind === "anchor") return `anchor:${anchorKey(action.anchor)}`;
+  if (action.kind === "explore") return `explore:${runtimeHandoffKey(action.target)}`;
   return `nav:${action.route}`;
+}
+
+function dedupeAnchors(anchors: DeliveryAnchor[]): DeliveryAnchor[] {
+  const seen = new Set<string>();
+  const out: DeliveryAnchor[] = [];
+  for (const anchor of anchors) {
+    const key = anchorKey(anchor);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(anchor);
+  }
+  return out;
 }
 
 /** Delivery-first command palette — Stage 2 foundation (no cluster indexing). */
@@ -45,20 +76,33 @@ export function WorkspacePalette({
   open,
   onClose,
   onAction,
+  contextAnchor = null,
+  profileId,
 }: {
   open: boolean;
   onClose: () => void;
   onAction: (action: PaletteAction) => void;
+  /** Selected / open Delivery — palette traces it for Explore actions. */
+  contextAnchor?: DeliveryAnchor | null;
+  profileId?: string;
 }) {
   const listId = useId();
   const optionId = (index: number) => `${listId}-opt-${index}`;
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [searchActions, setSearchActions] = useState<PaletteAction[]>([]);
+  const [contextRuntimeActions, setContextRuntimeActions] = useState<PaletteAction[]>([]);
+  const [searchRuntimeActions, setSearchRuntimeActions] = useState<PaletteAction[]>([]);
   const actions = useMemo(() => NAV_ACTIONS, []);
   const paste = useMemo(() => pasteAction(query), [query]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    // Search/paste Explore stays visible even when the workload label
+    // does not contain the query — the query already selected the Delivery.
+    const contextRuntime = !needle
+      ? contextRuntimeActions
+      : contextRuntimeActions.filter((action) => action.label.toLowerCase().includes(needle));
+    const runtimeBase = [...contextRuntime, ...searchRuntimeActions];
     const base = !needle
       ? actions
       : actions.filter((action) => action.label.toLowerCase().includes(needle));
@@ -77,9 +121,17 @@ export function WorkspacePalette({
       if (action.kind !== "anchor") return true;
       return !pasteKeys.has(anchorKey(action.anchor));
     });
-    if (paste) return [paste, ...fromSearch, ...rest];
-    return [...fromSearch, ...rest];
-  }, [actions, paste, query, searchActions]);
+    const exploreSeen = new Set<string>();
+    const explore = runtimeBase.filter((action) => {
+      if (action.kind !== "explore") return true;
+      const key = runtimeHandoffKey(action.target);
+      if (exploreSeen.has(key)) return false;
+      exploreSeen.add(key);
+      return true;
+    });
+    if (paste) return [paste, ...explore, ...fromSearch, ...rest];
+    return [...explore, ...fromSearch, ...rest];
+  }, [actions, contextRuntimeActions, paste, query, searchActions, searchRuntimeActions]);
 
   useEffect(() => {
     if (!open) setQuery("");
@@ -88,6 +140,32 @@ export function WorkspacePalette({
   useEffect(() => {
     setActiveIndex(0);
   }, [query, filtered.length]);
+
+  // Selected Delivery → safe Explore actions (navigate/focus only).
+  useEffect(() => {
+    if (!open || !contextAnchor) {
+      setContextRuntimeActions([]);
+      return;
+    }
+    let cancelled = false;
+    devopsTraceDelivery(
+      contextAnchor,
+      undefined,
+      profileId ? { profileId } : undefined,
+    )
+      .then((trace) => {
+        if (cancelled) return;
+        setContextRuntimeActions(
+          runtimeHandoffsFromNodes(trace.nodes, profileId).map(exploreAction),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setContextRuntimeActions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, contextAnchor, profileId]);
 
   // After paste miss: capability search (no provider fetch from React).
   useEffect(() => {
@@ -101,7 +179,7 @@ export function WorkspacePalette({
       return;
     }
     let cancelled = false;
-    devopsSearch(needle)
+    devopsSearch(needle, profileId ? { profileId } : undefined)
       .then((result) => {
         if (cancelled) return;
         setSearchActions(
@@ -118,7 +196,50 @@ export function WorkspacePalette({
     return () => {
       cancelled = true;
     };
-  }, [open, query]);
+  }, [open, query, profileId]);
+
+  // Searched / pasted Delivery → Explore when the live trace has runtime attrs.
+  useEffect(() => {
+    if (!open) {
+      setSearchRuntimeActions([]);
+      return;
+    }
+    const fromPaste = paste?.kind === "anchor" ? [paste.anchor] : [];
+    const fromSearch = searchActions
+      .filter((a): a is Extract<PaletteAction, { kind: "anchor" }> => a.kind === "anchor")
+      .map((a) => a.anchor);
+    const anchors = dedupeAnchors([...fromPaste, ...fromSearch])
+      .filter((a) => !(contextAnchor && anchorKey(a) === anchorKey(contextAnchor)))
+      .slice(0, MAX_SEARCH_RUNTIME_ANCHORS);
+    if (anchors.length === 0) {
+      setSearchRuntimeActions([]);
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      anchors.map((anchor) =>
+        devopsTraceDelivery(anchor, undefined, profileId ? { profileId } : undefined)
+          .then((trace) => runtimeHandoffsFromNodes(trace.nodes, profileId))
+          .catch(() => [] as RuntimeHandoff[]),
+      ),
+    ).then((batches) => {
+      if (cancelled) return;
+      const seen = new Set<string>();
+      const actions: PaletteAction[] = [];
+      for (const batch of batches) {
+        for (const target of batch) {
+          const key = runtimeHandoffKey(target);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          actions.push(exploreAction(target));
+        }
+      }
+      setSearchRuntimeActions(actions);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, paste, searchActions, contextAnchor, profileId]);
 
   useEffect(() => {
     if (!open) return;

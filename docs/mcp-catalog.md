@@ -246,6 +246,21 @@ Add to `claude_desktop_config.json`:
 claude mcp add srelens -- srelens --mcp-stdio
 ```
 
+### Cursor
+
+Add to `~/.cursor/mcp.json` (or a project `.cursor/mcp.json` / `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "srelens": {
+      "command": "srelens",
+      "args": ["--mcp-stdio"]
+    }
+  }
+}
+```
+
 ### Generic stdio client
 
 Spawn the binary and speak newline-delimited JSON-RPC on stdin/stdout:

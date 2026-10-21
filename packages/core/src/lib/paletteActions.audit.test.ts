@@ -11,7 +11,7 @@ const EXCLUDED: Record<string, string> = {
   "extensions.action": "host-owned app resource actions use explicit confirmation in the Apps inspector",
   "extensions.configure": "extension lifecycle and permissions are managed in Settings → Apps",
   "k8s.applyManifest": "reached via the manifest editor, not a one-click palette action",
-  "k8s.updateConfigData": "ConfigMap/Secret data edits happen in the ResourceOverview drawer, which needs a key/value patch beyond a bare resource ref",
+  "k8s.updateConfigData": "ConfigMap/Secret data edits happen in the detail pane, which needs a key/value patch beyond a bare resource ref",
   "k8s.deleteContext": "kubeconfig management lives in Settings",
   "k8s.helmInstall": "surfaced via HelmOpDialog from HelmReleasesView, not a resource-targeted palette action",
   "k8s.helmUpgrade": "surfaced via HelmOpDialog from HelmReleasesView, not a resource-targeted palette action",

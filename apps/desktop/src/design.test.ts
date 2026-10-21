@@ -73,6 +73,7 @@ describe("the list of ported screens", () => {
       "/connections",
       "/connect",
       "/settings",
+      "/new",
     ]);
   });
 
@@ -95,6 +96,7 @@ describe("the list of ported screens", () => {
       "Connections",
       "Connect a cluster",
       "Settings",
+      "New resource",
     ]);
   });
 });

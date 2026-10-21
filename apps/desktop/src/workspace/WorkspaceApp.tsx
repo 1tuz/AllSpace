@@ -7,6 +7,7 @@ import {
 } from "@srelens/core";
 import { WorkspacePalette, type PaletteAction } from "./WorkspacePalette";
 import { WorkspaceShell } from "./WorkspaceShell";
+import type { TopBarDelivery } from "./ContextualTopBar";
 import { ConnectionsScreen } from "./screens/ConnectionsScreen";
 import { DeliveriesScreen } from "./screens/DeliveriesScreen";
 import { DeliveryTraceScreen } from "./screens/DeliveryTraceScreen";
@@ -22,11 +23,20 @@ import {
 import type { RuntimeHandoff } from "./runtimeHandoff";
 import { runtimeScopeFromHandoff } from "./runtimeHandoff";
 import type { DevOpsRuntimeScope } from "@srelens/core";
+import type { DeliveryListItem } from "./delivery/summaryToDelivery";
 import {
   loadFirstRunDone,
   saveFirstRunDone,
   type WorkspaceRoute,
 } from "./nav";
+
+function topBarDeliveryFromRoute(route: WorkspaceRoute): TopBarDelivery | null {
+  if (route.name !== "delivery") return null;
+  return {
+    workId: route.anchor?.value ?? route.id,
+    title: "",
+  };
+}
 
 /** Delivery-first product shell. No global cluster selection. */
 export function WorkspaceApp({
@@ -48,11 +58,33 @@ export function WorkspaceApp({
   const [runtimeScope, setRuntimeScope] = useState<DevOpsRuntimeScope | null>(null);
   const [profiles, setProfiles] = useState<DevOpsProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState("appfarm");
+  /** Home / Deliveries master-detail selection — surfaces in the top bar. */
+  const [listSelection, setListSelection] = useState<DeliveryListItem | null>(null);
 
   const activeProfile = useMemo(
     () => profiles.find((p) => p.id === activeProfileId) ?? profiles[0] ?? null,
     [profiles, activeProfileId],
   );
+
+  const profileLabel = activeProfile?.label ?? "";
+
+  const topBarDelivery =
+    topBarDeliveryFromRoute(route) ??
+    (listSelection
+      ? { workId: listSelection.workId, title: listSelection.title }
+      : null);
+
+  const onTopBarBack =
+    route.name === "delivery"
+      ? () => setRoute({ name: "deliveries" })
+      : listSelection
+        ? () => setListSelection(null)
+        : undefined;
+
+  useEffect(() => {
+    // Selection is per-surface; drop it on any route change (incl. home↔deliveries).
+    setListSelection(null);
+  }, [route.name]);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +104,7 @@ export function WorkspaceApp({
     // live kube fan-out keeps talking to the other contour's context.
     setRuntimeScope(null);
     setRuntimeFocus(null);
+    setListSelection(null);
     const next = await selectWorkspaceProfile(profileId);
     setProfiles(next.profiles);
     setActiveProfileId(next.activeProfileId);
@@ -100,6 +133,17 @@ export function WorkspaceApp({
     setRoute({ name: "connections" });
   }
 
+  function exploreRuntime(target?: RuntimeHandoff) {
+    setRuntimeFocus(target ?? null);
+    if (target) setRuntimeScope(runtimeScopeFromHandoff(target));
+    setRoute({ name: "kubernetes" });
+  }
+
+  const paletteContextAnchor: DeliveryAnchor | null =
+    route.name === "delivery"
+      ? (route.anchor ?? null)
+      : (listSelection?.anchor ?? null);
+
   function onPaletteAction(action: PaletteAction) {
     if (action.kind === "delivery") {
       openDelivery(action.id);
@@ -107,6 +151,10 @@ export function WorkspaceApp({
     }
     if (action.kind === "anchor") {
       openFromAnchor(action.anchor);
+      return;
+    }
+    if (action.kind === "explore") {
+      exploreRuntime(action.target);
       return;
     }
     switch (action.route) {
@@ -143,12 +191,20 @@ export function WorkspaceApp({
     <WorkspaceShell
       route={route}
       onNavigate={setRoute}
-      onOpenPalette={() => setPaletteOpen(true)}
       profiles={profiles}
       activeProfileId={activeProfileId}
       onSelectProfile={(id) => void onSelectProfile(id)}
+      profileLabel={profileLabel}
+      delivery={topBarDelivery}
+      onBack={onTopBarBack}
     >
-      <WorkspacePalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onAction={onPaletteAction} />
+      <WorkspacePalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onAction={onPaletteAction}
+        contextAnchor={paletteContextAnchor}
+        profileId={activeProfileId}
+      />
       {route.name === "first-run" && (
         <FirstRunScreen
           onContinue={(contour) => void finishFirstRun(contour)}
@@ -157,7 +213,11 @@ export function WorkspaceApp({
       {route.name === "home" && (
         <HomeScreen
           profile={activeProfile}
+          runtimeScope={runtimeScope}
+          selected={listSelection}
+          onSelect={setListSelection}
           onOpenDelivery={openDelivery}
+          onExploreRuntime={exploreRuntime}
         />
       )}
       {route.name === "deliveries" && (
@@ -165,6 +225,10 @@ export function WorkspaceApp({
           profile={activeProfile}
           filter={deliveryFilter}
           onFilter={setDeliveryFilter}
+          runtimeScope={runtimeScope}
+          selected={listSelection}
+          onSelect={setListSelection}
+          onExploreRuntime={exploreRuntime}
         />
       )}
       {route.name === "delivery" && (
@@ -175,11 +239,7 @@ export function WorkspaceApp({
           profile={activeProfile}
           profileId={activeProfileId}
           onBack={() => setRoute({ name: "deliveries" })}
-          onExploreRuntime={(target) => {
-            setRuntimeFocus(target ?? null);
-            if (target) setRuntimeScope(runtimeScopeFromHandoff(target));
-            setRoute({ name: "kubernetes" });
-          }}
+          onExploreRuntime={exploreRuntime}
         />
       )}
       {route.name === "connections" && <ConnectionsScreen />}

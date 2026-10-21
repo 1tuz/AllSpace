@@ -8,12 +8,13 @@ import userEvent from "@testing-library/user-event";
 // demand — the dialog's error path is the whole point of half these tests.
 type ActionResult = { ok?: boolean; error?: string };
 
-const { deleteResource, scaleResource, rolloutRestart, evictPod, cronjobSetSuspend, cronjobTriggerNow, getObject } =
+const { deleteResource, scaleResource, rolloutRestart, evictPod, debugPod, cronjobSetSuspend, cronjobTriggerNow, getObject } =
   vi.hoisted(() => ({
     deleteResource: vi.fn(async (): Promise<ActionResult> => ({ ok: true })),
     scaleResource: vi.fn(async (): Promise<ActionResult> => ({ ok: true })),
     rolloutRestart: vi.fn(async (): Promise<ActionResult> => ({ ok: true })),
     evictPod: vi.fn(async (): Promise<ActionResult> => ({ ok: true })),
+    debugPod: vi.fn(async (): Promise<{ container?: string; error?: string }> => ({ container: "debugger-abc12" })),
     cronjobSetSuspend: vi.fn(async (): Promise<ActionResult> => ({ ok: true })),
     cronjobTriggerNow: vi.fn(async (): Promise<{ jobName?: string; error?: string }> => ({
       jobName: "nightly-manual-1",
@@ -56,6 +57,7 @@ vi.mock("@srelens/core", async (importOriginal) => ({
   scaleResource,
   rolloutRestart,
   evictPod,
+  debugPod,
   cronjobSetSuspend,
   cronjobTriggerNow,
   getObject,
@@ -67,6 +69,11 @@ import type { ContextMenuItem } from "@srelens/ui-kit";
 import type { ListRow } from "../lib/kinds/types";
 import * as store from "../lib/tabsStore";
 import { defaultState } from "../lib/tabs";
+import {
+  __resetResourceHandoffForTests,
+  offerAction,
+  peekAction,
+} from "../lib/resourceHandoff";
 
 /**
  * Renders the menu's items as plain buttons (a right-click menu is Table's
@@ -109,7 +116,7 @@ const NODE_ROW: ListRow = { name: "worker-1" };
 const POD_ARGS: UseRowMenuArgs = {
   context: "prod",
   kind: "Pod",
-  actions: { logs: true, shell: true, forward: true, evict: true },
+  actions: { logs: true, shell: true, debug: true, forward: true, evict: true },
 };
 const CM_ARGS: UseRowMenuArgs = { context: "prod", kind: "ConfigMap", actions: {} };
 const DEPLOY_ARGS: UseRowMenuArgs = { context: "prod", kind: "Deployment", actions: { scale: true, restart: true } };
@@ -122,15 +129,26 @@ beforeEach(() => {
 });
 
 describe("useRowMenu", () => {
-  it("offers logs, a shell and a forward on a pod, and none of them on a ConfigMap", () => {
+  it("offers logs, a shell, debug and a forward on a pod, and none of them on a ConfigMap", () => {
     const podLabels = menuItems(POD_ARGS, POD_ROW).map((i) => (i.kind === "sep" ? "—" : i.label));
     expect(podLabels).toEqual(
-      expect.arrayContaining(["Open in new tab", "Follow logs", "Open shell", "Port forward", "Edit", "Copy as kubectl", "Evict", "Delete"]),
+      expect.arrayContaining([
+        "Open in new tab",
+        "Follow logs",
+        "Open shell",
+        "Debug",
+        "Port forward",
+        "Edit",
+        "Copy as kubectl",
+        "Evict",
+        "Delete",
+      ]),
     );
 
     const cmLabels = menuItems(CM_ARGS, CM_ROW).map((i) => (i.kind === "sep" ? "—" : i.label));
     expect(cmLabels).not.toContain("Follow logs");
     expect(cmLabels).not.toContain("Open shell");
+    expect(cmLabels).not.toContain("Debug");
     expect(cmLabels).not.toContain("Port forward");
     expect(cmLabels).not.toContain("Evict");
     // Edit and Open in new tab are not gated by KindActions at all — every
@@ -350,6 +368,60 @@ describe("useRowMenu", () => {
     expect(startPodSession).not.toHaveBeenCalled();
     expect(store.currentWorkspace().tabs.some((t) => t.route === "/terminals")).toBe(false);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  /**
+   * Classic's Pod Debug: confirm with image (+ optional target), call
+   * `k8s.debugPod`, then open a shell into the returned ephemeral container.
+   * Same Pending slot as Delete/Evict — fields like Scale.
+   */
+  it("asks before attaching a debug container, and calls nothing until confirm", async () => {
+    render(<Harness args={POD_ARGS} row={POD_ROW} />);
+    await userEvent.click(screen.getByRole("button", { name: "Debug" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText("Attach debug container?")).toBeDefined();
+    expect((dialog.getByLabelText("Debug image") as HTMLInputElement).value).toBe("busybox");
+    expect(debugPod).not.toHaveBeenCalled();
+    expect(startPodSession).not.toHaveBeenCalled();
+
+    await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    expect(debugPod).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("attaches an ephemeral debug container and opens a shell into it", async () => {
+    render(<Harness args={POD_ARGS} row={POD_ROW} />);
+    await userEvent.click(screen.getByRole("button", { name: "Debug" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    await userEvent.clear(dialog.getByLabelText("Debug image"));
+    await userEvent.type(dialog.getByLabelText("Debug image"), "nicolaka/netshoot");
+    await userEvent.type(dialog.getByLabelText("Target container"), "app");
+    await userEvent.click(dialog.getByRole("button", { name: "Attach & open shell" }));
+
+    await waitFor(() =>
+      expect(debugPod).toHaveBeenCalledWith("prod", "kube-system", "web-0", "nicolaka/netshoot", "app"),
+    );
+    await waitFor(() =>
+      expect(startPodSession).toHaveBeenCalledWith({
+        context: "prod",
+        namespace: "kube-system",
+        pod: "web-0",
+        container: "debugger-abc12",
+      }),
+    );
+    expect(store.currentWorkspace().tabs.some((t) => t.route === "/terminals")).toBe(true);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("keeps the debug dialog open when attach fails, and opens no shell", async () => {
+    debugPod.mockResolvedValueOnce({ error: "ephemeralcontainers is forbidden" });
+    render(<Harness args={POD_ARGS} row={POD_ROW} />);
+    await userEvent.click(screen.getByRole("button", { name: "Debug" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    await userEvent.click(dialog.getByRole("button", { name: "Attach & open shell" }));
+    await waitFor(() => expect(screen.getByText(/ephemeralcontainers is forbidden/)).toBeDefined());
+    expect(startPodSession).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeDefined();
   });
 
   it("opens a cluster-scoped resource with the placeholder namespace segment", async () => {
@@ -671,6 +743,15 @@ describe("useRowMenu — the cluster the row was picked on", () => {
     expect(evictPod).toHaveBeenCalledWith(PINNED, "default", "checkout");
   });
 
+  it("debugs on the cluster the pod was picked on", async () => {
+    const podArgs = (context: string): UseRowMenuArgs => ({ context, kind: "Pod", actions: { debug: true } });
+    await pickThenMove("Debug", podArgs);
+    await userEvent.click(tickFor("debug"));
+    await userEvent.click(box().getByRole("button", { name: "Attach & open shell" }));
+    await waitFor(() => expect(debugPod).toHaveBeenCalledTimes(1));
+    expect(debugPod).toHaveBeenCalledWith(PINNED, "default", "checkout", "busybox", null);
+  });
+
   it("suspends on the cluster the CronJob was picked on, and says which way in the tick", async () => {
     const cronArgs = (context: string): UseRowMenuArgs => ({ context, kind: "CronJob", actions: { suspend: true } });
     await pickThenMove("Suspend", cronArgs);
@@ -796,5 +877,122 @@ describe("useRowMenu — the cluster the row was picked on", () => {
     await screen.findByRole("dialog");
     expect(screen.queryByText(new RegExp(`This still runs against`))).toBeNull();
     expect(box().queryByRole("checkbox", { name: /Yes, still/ })).toBeNull();
+  });
+});
+
+describe("useRowMenu — Action handoff from Console `/`", () => {
+  beforeEach(() => {
+    __resetResourceHandoffForTests();
+  });
+
+  it("takes a matching delete handoff and opens Pending without calling deleteResource", async () => {
+    offerAction({
+      context: "prod",
+      kind: "Deployment",
+      namespace: "default",
+      name: "web",
+      action: "delete",
+    });
+    render(
+      <Harness
+        args={{
+          ...DEPLOY_ARGS,
+          handoffSubject: { namespace: "default", name: "web" },
+        }}
+        row={DEPLOY_ROW}
+      />,
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Delete Deployment?" })).toBeTruthy();
+    expect(peekAction()).toBeNull();
+    expect(deleteResource).not.toHaveBeenCalled();
+  });
+
+  it("pins the handoff's cluster into Pending, not the live context prop", async () => {
+    offerAction({
+      context: "prod-eu",
+      kind: "Deployment",
+      namespace: "default",
+      name: "web",
+      action: "delete",
+    });
+    render(
+      <Harness
+        args={{
+          ...DEPLOY_ARGS,
+          context: "staging",
+          handoffSubject: { namespace: "default", name: "web" },
+        }}
+        row={DEPLOY_ROW}
+      />,
+    );
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialog).getByText(/--context prod-eu\b/)).toBeTruthy(),
+    );
+    expect(deleteResource).not.toHaveBeenCalled();
+    await userEvent.click(
+      within(dialog).getByRole("checkbox", { name: "Yes, still delete on prod-eu." }),
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() =>
+      expect(deleteResource).toHaveBeenCalledWith("prod-eu", "Deployment", "default", "web"),
+    );
+  });
+
+  it("ignores a handoff for a different subject and leaves it for the right detail", async () => {
+    offerAction({
+      context: "prod-eu",
+      kind: "Deployment",
+      namespace: "default",
+      name: "other",
+      action: "delete",
+    });
+    render(
+      <Harness
+        args={{
+          ...DEPLOY_ARGS,
+          handoffSubject: { namespace: "default", name: "web" },
+        }}
+        row={DEPLOY_ROW}
+      />,
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(peekAction()?.name).toBe("other");
+  });
+
+  it("takes a trigger handoff without opening Pending or calling cronjobTriggerNow", async () => {
+    offerAction({
+      context: "prod",
+      kind: "CronJob",
+      namespace: "ops",
+      name: "nightly",
+      action: "trigger",
+    });
+    render(
+      <Harness
+        args={{
+          ...CRON_ARGS,
+          handoffSubject: { namespace: "ops", name: "nightly", suspended: false },
+        }}
+        row={CRON_ROW}
+      />,
+    );
+    await waitFor(() => expect(peekAction()).toBeNull());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(cronjobTriggerNow).not.toHaveBeenCalled();
+  });
+
+  it("does not take a handoff when handoffSubject is omitted (list screens)", async () => {
+    offerAction({
+      context: "prod-eu",
+      kind: "Deployment",
+      namespace: "default",
+      name: "web",
+      action: "restart",
+    });
+    render(<Harness args={DEPLOY_ARGS} row={DEPLOY_ROW} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(peekAction()?.action).toBe("restart");
   });
 });

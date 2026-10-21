@@ -108,9 +108,16 @@ describe("Nav", () => {
     render(<Nav contexts={[PROD]} />);
 
     await userEvent.click(screen.getByRole("treeitem", { name: "Investigate" }));
-    await userEvent.click(await screen.findByRole("treeitem", { name: "Incidents" }));
+    await userEvent.click(await screen.findByRole("treeitem", { name: "Topology" }));
 
-    expect(tabFor("/incidents")?.preview).toBeFalsy();
+    expect(tabFor("/topology")?.preview).toBeFalsy();
+  });
+
+  it("does not offer Incidents — no feed yet, and Placeholder is not a destination", async () => {
+    render(<Nav contexts={[PROD]} />);
+
+    await userEvent.click(screen.getByRole("treeitem", { name: "Investigate" }));
+    expect(screen.queryByRole("treeitem", { name: "Incidents" })).toBeNull();
   });
 
   it("names the cluster and how it is linked", async () => {

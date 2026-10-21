@@ -189,8 +189,8 @@ absolute path Settings → MCP reports. **This install step is Unix-only**
 (macOS/Linux); on Windows, skip it and put the absolute path to the
 installed `srelens.exe` directly in `"command"` instead.
 
-Ready-to-paste snippets for Claude Desktop, Claude Code, a generic stdio
-client, the headless consent flags, and the HTTP transport are all in
+Ready-to-paste snippets for Claude Desktop, Claude Code, Cursor, a generic
+stdio client, the headless consent flags, and the HTTP transport are all in
 [mcp-catalog.md § Client configuration](mcp-catalog.md#client-configuration).
 Copy the one that matches your client rather than hand-rolling it — a test
 in this repository parses every one of those fenced blocks as JSON, so a

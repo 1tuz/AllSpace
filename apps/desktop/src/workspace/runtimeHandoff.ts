@@ -34,7 +34,7 @@ export function runtimeHandoffKey(target: RuntimeHandoff): string {
  */
 export function resolveRuntimeScope(
   explicit: DevOpsRuntimeScope | null | undefined,
-  nodes?: ReadonlyArray<{ attributes: Record<string, string> }>,
+  nodes?: ReadonlyArray<{ attributes: Record<string, unknown> }>,
 ): DevOpsRuntimeScope | undefined {
   const fromExplicit = explicit?.kubeContext?.trim();
   if (fromExplicit) {
@@ -48,9 +48,9 @@ export function resolveRuntimeScope(
   }
   if (!nodes) return undefined;
   for (const node of nodes) {
-    const kubeContext = node.attributes.cluster?.trim();
+    const kubeContext = optionalTrim(node.attributes.cluster);
     if (!kubeContext) continue;
-    const ns = node.attributes.namespace?.trim();
+    const ns = optionalTrim(node.attributes.namespace);
     return {
       kubeContext,
       ...(ns ? { namespaces: [ns] } : {}),
@@ -119,14 +119,14 @@ export function takeRuntimeHandoff(): RuntimeHandoff | null {
 
 /** Map runtime attributes onto a classic resource focus. */
 export function runtimeHandoffFromAttrs(
-  attributes: Record<string, string>,
+  attributes: Record<string, unknown>,
   fallbackKind = "deployments",
   profileId?: string,
 ): RuntimeHandoff | null {
-  const context = attributes.cluster?.trim();
-  const name = attributes.name?.trim();
-  const namespace = attributes.namespace?.trim() ?? "";
-  const kind = (attributes.kind?.trim() || fallbackKind).toLowerCase();
+  const context = optionalTrim(attributes.cluster);
+  const name = optionalTrim(attributes.name);
+  const namespace = optionalTrim(attributes.namespace) ?? "";
+  const kind = (optionalTrim(attributes.kind) || fallbackKind).toLowerCase();
   if (!context || !name) return null;
   const kindSlug =
     kind === "deployment"
@@ -152,4 +152,28 @@ export function runtimeHandoffFromAttrs(
     ...(pod ? { pod } : {}),
     ...(container ? { container } : {}),
   };
+}
+
+/** Unique Explore targets from delivery/trace nodes — skip nodes without cluster+name. */
+export function runtimeHandoffsFromNodes(
+  nodes: ReadonlyArray<{ attributes: Record<string, unknown> }>,
+  profileId?: string,
+): RuntimeHandoff[] {
+  const out: RuntimeHandoff[] = [];
+  const seen = new Set<string>();
+  for (const node of nodes) {
+    const handoff = runtimeHandoffFromAttrs(node.attributes, "deployments", profileId);
+    if (!handoff) continue;
+    const key = runtimeHandoffKey(handoff);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(handoff);
+  }
+  return out;
+}
+
+/** Palette label for a safe Explore navigate/focus action. */
+export function explorePaletteLabel(target: RuntimeHandoff): string {
+  const where = target.namespace.trim() ? `${target.namespace.trim()}/` : "";
+  return `Explore ${target.kind} ${where}${target.name}`;
 }

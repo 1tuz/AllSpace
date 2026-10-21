@@ -4,9 +4,11 @@ import {
   describeError,
   isApplePlatform,
   isTauri,
+  isTypingTarget,
   listContexts,
   loadKubeconfigFiles,
   loadMcpSettings,
+  matchesShortcut,
   rehydrateForwards,
   startMcpHttp,
   vaultLock,
@@ -60,6 +62,7 @@ import { Console } from "./Console";
 import { isWorkspaceSealed, LockGate, lockWorkspace } from "./LockGate";
 import { Nav } from "./Nav";
 import { Rail } from "./Rail";
+import { ShortcutSheet } from "./ShortcutSheet";
 import { Status } from "./Status";
 import { TabSurface } from "./TabSurface";
 
@@ -131,6 +134,7 @@ export function Window({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
   const apple = useMemo(() => isApplePlatform(), []);
   // Desktop only: `zoom` asks the webview to scale itself, which only exists
   // under Tauri. In a browser the native zoom already does this (see core's
@@ -374,6 +378,15 @@ export function Window({
   useEffect(() => {
     if (!active) return;
     function onKey(e: KeyboardEvent) {
+      // Same id as classic's core registry: `?` outside a typing target opens
+      // the sheet. The sheet's rows come from ui-next `BINDINGS`, not classic
+      // `SHORTCUTS` — law of identity: the overlay must list what this window
+      // actually answers.
+      if (matchesShortcut("cheatsheet", e) && !isTypingTarget(e.target)) {
+        e.preventDefault();
+        setCheatSheetOpen((o) => !o);
+        return;
+      }
       const action = matchWindowKey(e, apple);
       if (!action) return;
       // In web mode these chords are the browser's own — neither dispatched
@@ -728,6 +741,9 @@ export function Window({
         `mcp://confirm-request` are two prompts and two answers to a request
         that has a single `oneshot::Sender` waiting on it.
       */}
+      {cheatSheetOpen && active && (
+        <ShortcutSheet onClose={() => setCheatSheetOpen(false)} apple={apple} />
+      )}
       <AgentConsent />
     </>
   );

@@ -76,12 +76,22 @@ const CLUSTER_ROUTES: ReadonlyArray<{ kind: ResourceKind; route: string; before?
   { kind: "helmreleases", route: "/helm" },
 ];
 
-/** Where the app can be sent that is not a list of resources. */
+/**
+ * Where the app can be sent that is not a list of resources.
+ *
+ * Incidents is deliberately absent: there is no cluster feed for titles,
+ * severity or trend (see Overview's `OpenIncidents`), and a Nav row that opens
+ * Placeholder is a dead click. `describe("/incidents")` stays so a persisted
+ * tab can still name itself; when the product feed lands, add the row back and
+ * register the screen in `routes.ts`.
+ */
 export const INVESTIGATE: ReadonlyArray<{ id: string; label: string; route: string }> = [
   { id: "control", label: "Home", route: "/" },
-  { id: "incidents", label: "Incidents", route: "/incidents" },
   { id: "topology", label: "Topology", route: "/topology" },
   { id: "agent", label: "Agent", route: "/agent" },
+  // Screen already exists (`SCREENS["/toolbox"]`); without this row the only
+  // way in was typing the route — classic surfaces Toolbox from the hotbar.
+  { id: "toolbox", label: "Toolbox", route: "/toolbox" },
 ];
 
 /**

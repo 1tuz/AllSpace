@@ -62,9 +62,9 @@ import { STATUS, bySource, latencyLabel, viaOf } from "./connections/clusterText
  *
  * The replacement carries no promise of its own either. It used to say "ask
  * the console about it in plain language. srelens reads the cluster to
- * answer", and the console answers nothing in this design —
- * `shell/Console.tsx` renders "The agent is not in the new design yet". So it
- * says what srelens does do, and says plainly that the asking is not here yet.
+ * answer" — a claim that outran the then-unwired console. Agent Console is
+ * wired now; the lede still says only what holds unconditionally (credentials,
+ * direct API talk), without promising a conversational answer here.
  */
 const HEADLINE_ONE = "Pick a cluster.";
 const HEADLINE_TWO = "The room is already reading it.";
@@ -102,9 +102,6 @@ const LEDE_WEB =
  */
 const EYEBROW_DESKTOP = "srelens · local-first";
 const EYEBROW_WEB = "srelens · shared server";
-/** Said once, in both footers: the console is not wired up in this design. */
-const CONSOLE_NOT_YET =
-  "Asking the console about a cluster in plain language is not in this design yet.";
 /**
  * **What an agent may do with this list, both halves of it.**
  *
@@ -128,8 +125,9 @@ const CONSOLE_NOT_YET =
  */
 const AGENT_READS =
   "Connect an agent to srelens over MCP and it can read this list, and the clusters on it, without asking first; every change it makes stops at a confirmation prompt.";
-const FOOTER_DESKTOP = `srelens reads each cluster directly, with the credentials already in your kubeconfig, and never copies or uploads that file. ${AGENT_READS} ${CONSOLE_NOT_YET}`;
-const FOOTER_WEB = `srelens reads each cluster directly from this server, with the credentials in the kubeconfig it was started with. ${CONSOLE_NOT_YET}`;
+const FOOTER_DESKTOP = `srelens reads each cluster directly, with the credentials already in your kubeconfig, and never copies or uploads that file. ${AGENT_READS}`;
+const FOOTER_WEB =
+  "srelens reads each cluster directly from this server, with the credentials in the kubeconfig it was started with.";
 
 /**
  * Why neither door is drawn in the browser, said once — decision 2.

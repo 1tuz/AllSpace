@@ -20,7 +20,11 @@ const SHORTCUTS_SOURCE = readFileSync(join(HERE, "../../lib/shortcuts.ts"), "utf
  * instead of the pane silently omitting it forever.
  */
 function declaredActionTypes(): string[] {
-  const union = SHORTCUTS_SOURCE.match(/export type WindowAction =([\s\S]*?);\n\ntype Binding/);
+  // Stop at the end of the union — WINDOW_SHORTCUT_ROWS also has `type: "…"`
+  // literals and sits between the union and `type Binding`.
+  const union = SHORTCUTS_SOURCE.match(
+    /export type WindowAction =([\s\S]*?);\n\n\/\*\*/,
+  );
   if (!union) throw new Error("could not find the WindowAction union in lib/shortcuts.ts");
   const types = Array.from(union[1].matchAll(/type:\s*"([a-z-]+)"/g)).map((m) => m[1]);
   // `select-tab`'s member carries a second field after its own `;`

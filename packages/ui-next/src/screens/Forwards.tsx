@@ -35,7 +35,8 @@ import { FailureAlert, FailureWord } from "../lib/errorCopy";
 import { Icons } from "../lib/icons";
 import { formatBytes } from "../lib/numbers";
 import { useClusterGate } from "../lib/clusterMoved";
-import { NewForwardDialog } from "./forwards/NewForwardDialog";
+import { peekForward, subscribeForward, takeForward } from "../lib/resourceHandoff";
+import { NewForwardDialog, type ForwardTarget } from "./forwards/NewForwardDialog";
 
 /**
  * THE ONE HAND-PAIRED WORD/TONE TABLE ON THIS SCREEN, AND IT IS MARKED BECAUSE
@@ -267,7 +268,11 @@ export function Forwards(_props: { route: string }) {
    * read off production. `ResourceMenu`'s door into this same dialog pinned it
    * for exactly that reason (see `Forwarding` there); this is the other door.
    */
-  const [newForward, setNewForward] = useState<{ context: string; namespace?: string } | null>(null);
+  const [newForward, setNewForward] = useState<{
+    context: string;
+    namespace?: string;
+    target?: ForwardTarget;
+  } | null>(null);
   const targetPaused = useDismissOnPause(newForward?.context, () => setNewForward(null));
   const { workspace } = useTabs();
   const paused = cluster !== undefined && workspace.pausedClusters?.includes(cluster.stableId) === true;
@@ -293,6 +298,25 @@ export function Forwards(_props: { route: string }) {
     live: cluster?.name ?? "",
     verb: "forward",
   });
+
+  /**
+   * `/` may have offered a forward intent before `openTab("/forwards")`. Take
+   * it once and open the dialog on that target — the same prefill the row
+   * menu and `ForwardAction` already pass. Header `New forward` still opens
+   * blank aside from the rail's namespace.
+   */
+  const forwardOffer = useSyncExternalStore(subscribeForward, peekForward, peekForward);
+  useEffect(() => {
+    if (!forwardOffer) return;
+    const intent = takeForward();
+    if (!intent) return;
+    forwardGate.reset();
+    setNewForward({
+      context: intent.context,
+      namespace: intent.namespace,
+      target: { kind: intent.kind, name: intent.name },
+    });
+  }, [forwardOffer]);
 
   const openNewForward = () => {
     forwardGate.reset();
@@ -435,6 +459,7 @@ export function Forwards(_props: { route: string }) {
           // opened against an empty context.
           context={newForward.context}
           namespace={newForward.namespace}
+          target={newForward.target}
           moved={forwardGate.alert}
           refusal={forwardGate.refusal}
           onClose={() => {

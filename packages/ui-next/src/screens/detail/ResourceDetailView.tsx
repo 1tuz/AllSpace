@@ -181,9 +181,8 @@ export function ResourceDetailView({ context, kind, namespace, name, peek }: Res
   // THIS SCREEN'S STRIP: `Details Containers YAML Events Metrics`, the mock's
   // five. Containers is a tab of its own here because the pane is 352px wide
   // and a table of containers is not; the full tab folds the same fact into
-  // its Overview. Metrics trails the panes every kind has because it is the
-  // one nothing offers yet — no descriptor sets `panes.metrics` — and getting
-  // the order right now is cheaper than remembering it later.
+  // its Overview. Metrics trails the panes every kind has when the kind's
+  // descriptor opts in (`panes.metrics`) — Pod, Node, and workload controllers.
   const tabs: TabItem[] = [
     { id: PANE_DETAILS, label: "Details" },
     ...(hasContainers ? [{ id: PANE_CONTAINERS, label: "Containers" }] : []),

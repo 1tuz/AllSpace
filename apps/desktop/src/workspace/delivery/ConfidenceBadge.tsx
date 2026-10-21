@@ -42,7 +42,3 @@ export function ConfidenceBadge({
     </span>
   );
 }
-
-export function confidenceLabel(confidence: Confidence): string {
-  return LABEL[confidence];
-}

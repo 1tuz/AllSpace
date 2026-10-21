@@ -88,5 +88,8 @@ describe("matchWindowKey", () => {
     // pane reads it from here, so the two cannot disagree.
     expect(hint("lock", true)).toBe("⌘⇧L");
     expect(hint("lock", false)).toBe("Ctrl+Shift+L");
+    // Nine Mod+N chords share select-tab — show the range, not only Mod+1.
+    expect(hint("select-tab", true)).toBe("⌘1–⌘9");
+    expect(hint("select-tab", false)).toBe("Ctrl+1–Ctrl+9");
   });
 });

@@ -9,6 +9,13 @@ import {
   type ThemeMode,
   type ThemeName,
 } from "../../ui";
+import { isTauri } from "@srelens/core/platform";
+import {
+  liquidGlassStatus,
+  liquidGlassStatusLabel,
+  prefersReducedTransparency,
+  type LiquidGlassStatus,
+} from "../../ui/liquidGlass";
 
 const MODE_OPTIONS: Array<{ mode: ThemeMode; label: string; description: string }> = [
   { mode: "light", label: "Light", description: "Always light" },
@@ -22,11 +29,44 @@ const MODE_OPTIONS: Array<{ mode: ThemeMode; label: string; description: string 
  */
 export function AppearanceSection() {
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
+  const [glassStatus, setGlassStatus] = useState<LiquidGlassStatus | null>(null);
+  const [reducedTransparency, setReducedTransparency] = useState(() =>
+    prefersReducedTransparency(),
+  );
 
   useEffect(() => {
     applyTheme(theme);
     return watchSystemTheme(theme, (next) => applyTheme(next));
   }, [theme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const query = window.matchMedia("(prefers-reduced-transparency: reduce)");
+    const onChange = () => setReducedTransparency(query.matches);
+    onChange();
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isTauri()) {
+      setGlassStatus(null);
+      return;
+    }
+    void liquidGlassStatus()
+      .then((status) => {
+        if (!cancelled) setGlassStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setGlassStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [theme.liquidGlass]);
 
   function setMode(mode: ThemeMode) {
     setTheme((current) => ({ ...current, mode }));
@@ -39,6 +79,8 @@ export function AppearanceSection() {
   function setLiquidGlass(liquidGlass: boolean) {
     setTheme((current) => ({ ...current, liquidGlass }));
   }
+
+  const statusLabel = liquidGlassStatusLabel(glassStatus, reducedTransparency);
 
   return (
     <section className="max-w-3xl" data-testid="appearance-section">
@@ -69,22 +111,28 @@ export function AppearanceSection() {
         <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Colour scheme
         </p>
-        <ul className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <ul
+          className="mt-2 grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2"
+          role="list"
+          aria-label="Colour scheme"
+        >
           {THEME_OPTIONS.map((option) => {
             const selected = theme.name === option.id;
             return (
-              <li key={option.id}>
+              <li key={option.id} className="bg-background">
                 <button
                   type="button"
-                  className={`flex w-full items-start gap-3 border px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    selected ? "border-primary bg-muted/50" : "border-border hover:bg-muted/40"
+                  className={`flex w-full items-start gap-3 px-3 py-2.5 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                    selected
+                      ? "bg-muted/40 ring-1 ring-inset ring-primary"
+                      : "hover:bg-muted/30"
                   }`}
                   onClick={() => setName(option.id)}
                   aria-pressed={selected}
                   data-testid={`theme-palette-${option.id}`}
                 >
                   <span
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border border-border"
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded-sm ring-1 ring-border/60"
                     style={{ backgroundColor: option.preview }}
                     aria-hidden
                   />
@@ -103,7 +151,7 @@ export function AppearanceSection() {
         <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Materials
         </p>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <Button
             variant={theme.liquidGlass ? "primary" : "ghost"}
             onClick={() => setLiquidGlass(!theme.liquidGlass)}
@@ -112,10 +160,17 @@ export function AppearanceSection() {
           >
             Liquid glass {theme.liquidGlass ? "on" : "off"}
           </Button>
+          <p
+            className="text-[11px] text-muted-foreground"
+            data-testid="liquid-glass-status"
+            aria-live="polite"
+          >
+            {statusLabel}
+          </p>
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Frosted glass across the workspace shell (rail, screens, panels, dock). Respects{" "}
-          <span className="font-mono">prefers-reduced-transparency</span>.
+          Frosted glass on chrome, palette, and popovers. Dense lists and tables stay opaque.
+          Respects <span className="font-mono">prefers-reduced-transparency</span>.
         </p>
       </div>
     </section>

@@ -50,6 +50,11 @@ import {
   startPodSession,
   terminalFor,
 } from "../lib/sessions";
+import {
+  __resetResourceHandoffForTests,
+  offerShell,
+  peekShell,
+} from "../lib/resourceHandoff";
 import { defaultState } from "../lib/tabs";
 import * as tabs from "../lib/tabsStore";
 import { Terminals } from "./Terminals";
@@ -160,6 +165,7 @@ beforeEach(() => {
   core.listNodes.mockResolvedValue({ nodes: [] });
   core.createNodeDebugPod.mockResolvedValue({});
   __resetSessionsForTests();
+  __resetResourceHandoffForTests();
   resetContexts();
   setContexts([CTX]);
   tabs.setState(defaultState([CTX]));
@@ -170,6 +176,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   __resetSessionsForTests();
+  __resetResourceHandoffForTests();
   document.documentElement.removeAttribute("data-theme");
   document.documentElement.removeAttribute("style");
 });
@@ -180,6 +187,36 @@ describe("Terminals", () => {
     act(() => tabs.setClusterPaused(tabs.currentWorkspace().id, CTX.stableId, true));
     expect(screen.queryByRole("button", { name: "Start session" })).toBeNull();
   });
+
+  it("opens New session on a handed-off pod and consumes the intent once", async () => {
+    const POD = "checkout-api-5c8b7f2d9-mk3wl";
+    core.listNamespaces.mockResolvedValue({ namespaces: ["checkout"] });
+    core.listPods.mockResolvedValue({ pods: [{ name: POD, namespace: "checkout" }] });
+    core.getObject.mockResolvedValue({
+      object: {
+        metadata: { name: POD, namespace: "checkout" },
+        spec: { containers: [{ name: "api" }] },
+        status: { containerStatuses: [{ name: "api", state: { running: {} } }] },
+      },
+    });
+    offerShell({ context: CTX.name, namespace: "checkout", pod: POD });
+    draw();
+    await screen.findByRole("button", { name: "Start session" });
+    await waitFor(() => expect((screen.getByLabelText("Pod") as HTMLSelectElement).value).toBe(POD));
+    expect(peekShell()).toBeNull();
+  });
+
+  it("opens New session on a handed-off node and consumes the intent once", async () => {
+    const NODE = "eu-w4-c3-standard-a1";
+    core.listNodes.mockResolvedValue({ nodes: [{ name: NODE }] });
+    offerShell({ kind: "node", context: CTX.name, node: NODE });
+    draw();
+    await screen.findByRole("button", { name: "Start session" });
+    expect(screen.getByRole("button", { name: "Node" }).getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => expect((screen.getByLabelText("Node") as HTMLSelectElement).value).toBe(NODE));
+    expect(peekShell()).toBeNull();
+  });
+
   it("lets the pane shrink, so the rail is not pushed off the window", async () => {
     // xterm sizes its content in explicit pixels, and a flex item's implicit
     // `min-width: auto` refuses to shrink below its content — so without

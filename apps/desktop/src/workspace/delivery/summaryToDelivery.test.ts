@@ -45,4 +45,25 @@ describe("summaryToDelivery", () => {
     expect(row.stage).toBe("in_progress");
     expect(row.situations[0]?.level).toBe("calm");
   });
+
+  it("maps jira issue seed rows with issue anchors", () => {
+    const row = summaryToDelivery(
+      {
+        id: "jira:issue:OPS-142",
+        anchor: { kind: "issue", value: "OPS-142", source: "jira" },
+        title: "Cache invalidation",
+        workId: "OPS-142",
+        stage: "in_progress",
+        stageLabel: "In Progress",
+        situations: [],
+        partial: false,
+        sourceErrors: [],
+      },
+      "AppFarm",
+    );
+    expect(row.id).toBe("jira:issue:OPS-142");
+    expect(row.workId).toBe("OPS-142");
+    expect(row.anchor?.kind).toBe("issue");
+    expect(row.anchor && "value" in row.anchor ? row.anchor.value : null).toBe("OPS-142");
+  });
 });

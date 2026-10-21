@@ -53,6 +53,11 @@ vi.mock("@srelens/core", async (orig) => ({
 import { type ActiveForward, type ClusterContext, kindToForwardTarget, toKubectl } from "@srelens/core";
 import { Forwards } from "./Forwards";
 import { resetContexts, setContexts } from "../lib/clusters";
+import {
+  __resetResourceHandoffForTests,
+  offerForward,
+  peekForward,
+} from "../lib/resourceHandoff";
 import { currentWorkspace, setClusterPaused, setActiveCluster, setState } from "../lib/tabsStore";
 import { defaultState } from "../lib/tabs";
 
@@ -172,6 +177,7 @@ beforeEach(() => {
   // No cluster in the rail by default — every test above this line predates
   // the rail mattering to this screen, and reads the same as it always did.
   resetContexts();
+  __resetResourceHandoffForTests();
   NOW = Date.now();
   store.list = fixture(NOW);
   store.listeners.clear();
@@ -631,6 +637,26 @@ describe("Forwards — the screen around the table", () => {
     expect(within(dialog).getByText("New port forward")).toBeTruthy();
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("opens the dialog on a handed-off target and consumes the intent once", async () => {
+    const POD = "checkout-api-5c8b7f2d9-mk3wl";
+    core.listPods.mockResolvedValue({ pods: [{ name: POD, namespace: "checkout" }] });
+    offerForward({
+      context: "prod-eu",
+      namespace: "checkout",
+      kind: "Pod",
+      name: POD,
+    });
+    open();
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("New port forward")).toBeTruthy();
+    await waitFor(() =>
+      expect((within(dialog).getByLabelText("Target") as HTMLSelectElement).value).toBe(
+        `pod/${POD}`,
+      ),
+    );
+    expect(peekForward()).toBeNull();
   });
 
   /**

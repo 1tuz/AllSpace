@@ -1,47 +1,22 @@
 import { isApplePlatform } from "@srelens/core";
 import { Panel } from "@srelens/ui-kit";
-import { hint, type WindowAction } from "../../lib/shortcuts";
+import { hint, WINDOW_SHORTCUT_ROWS } from "../../lib/shortcuts";
 
 /**
  * `Shortcuts` — every row's chord comes from {@link hint}, which reads the
  * same `BINDINGS` the window actually listens on
- * (`packages/ui-next/src/lib/shortcuts.ts`). This file names no key: it
- * supplies a label and an action type, and `hint` supplies the glyphs. A
- * binding that changes, or is rebound to a different chord, changes what
- * renders here without anyone touching this file — the alternative, a table
- * of glyphs typed out by hand, is wrong the moment `BINDINGS` moves and stays
- * wrong until someone happens to notice.
- *
- * The list of rows is every variant of `WindowAction["type"]` the module
- * declares, in the order the window's own dispatch reads naturally (console,
- * then the tab actions, then zoom) — not §23's ten-row table, which mixes in
- * chords this pane has no source for (`/` in the console, `↑ ↓`, `⌘⏎`, `esc`)
- * and omits one this app does bind (`reopen-tab`, `⌘⇧T`). A row this pane
- * cannot get from `hint` is a row it does not draw.
+ * (`packages/ui-next/src/lib/shortcuts.ts`). Labels come from
+ * {@link WINDOW_SHORTCUT_ROWS} — shared with the `?` cheat sheet — so a
+ * binding that changes updates both surfaces. A row this pane cannot get
+ * from `hint` is a row it does not draw.
  */
-const WINDOW_ACTIONS: ReadonlyArray<{ type: WindowAction["type"]; label: string }> = [
-  { type: "console", label: "Open the console" },
-  // First after the console, because §25's surface is the one on this list a
-  // reader might need in a hurry.
-  { type: "lock", label: "Lock the workspace" },
-  { type: "new-tab", label: "New tab" },
-  { type: "close-tab", label: "Close tab" },
-  { type: "reopen-tab", label: "Reopen the last closed tab" },
-  { type: "prev-tab", label: "Previous tab" },
-  { type: "next-tab", label: "Next tab" },
-  { type: "select-tab", label: "Jump to a tab" },
-  { type: "zoom-in", label: "Zoom in" },
-  { type: "zoom-out", label: "Zoom out" },
-  { type: "zoom-reset", label: "Reset zoom" },
-];
-
 export function ShortcutsPane() {
   const apple = isApplePlatform();
   return (
     <div className="flex flex-col gap-4">
       <Panel title="Keyboard">
         <div role="list" aria-label="Keyboard shortcuts">
-          {WINDOW_ACTIONS.map(({ type, label }) => (
+          {WINDOW_SHORTCUT_ROWS.map(({ type, label }) => (
             <div
               key={type}
               data-testid="shortcut-row"

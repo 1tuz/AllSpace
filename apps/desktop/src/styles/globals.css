@@ -135,6 +135,7 @@
 /* Workspace shell materials — structural only; respect reduced transparency. */
 .workspace-shell {
   --ws-rail-width: 13rem;
+  --ws-rail-collapsed-width: 3.25rem;
   --ws-row-height: 2.5rem;
   --ws-row-pad-x: 0.75rem;
   --ws-row-pad-y: 0.5rem;
@@ -174,6 +175,11 @@
   -webkit-backdrop-filter: saturate(1.2) blur(12px);
   background-color: color-mix(in oklab, var(--sidebar, var(--muted)) 82%, transparent);
   border-right-color: var(--ws-hairline);
+  transition: width 160ms ease;
+}
+
+.workspace-shell[data-rail-collapsed="true"] {
+  --ws-rail-width: var(--ws-rail-collapsed-width);
 }
 
 .workspace-shell__drag {
@@ -194,6 +200,42 @@
 
 .workspace-shell__mono {
   font-family: var(--ws-mono);
+}
+
+/* Home mosaic: summary full-width top; inbox | trace bottom. Maximize fills. */
+.workspace-shell .home-mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  height: 100%;
+}
+
+.workspace-shell .home-mosaic__summary {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.workspace-shell .home-mosaic__inbox {
+  grid-column: 1;
+  grid-row: 2;
+  border-right: 1px solid var(--ws-hairline);
+}
+
+.workspace-shell .home-mosaic__trace {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.workspace-shell .home-mosaic[data-home-mosaic-mode="maximized"] {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+.workspace-shell .home-mosaic[data-home-mosaic-mode="maximized"] > :not([hidden]) {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  border-right: none;
 }
 
 .workspace-dense-row {

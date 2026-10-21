@@ -30,6 +30,8 @@ export function DeliveryTraceScreen({
   profileId,
   onBack,
   onExploreRuntime,
+  embedded = false,
+  backLabel,
 }: {
   deliveryId: string;
   anchor?: DeliveryAnchor;
@@ -39,6 +41,9 @@ export function DeliveryTraceScreen({
   profileId?: string;
   onBack: () => void;
   onExploreRuntime: (target?: RuntimeHandoff) => void;
+  /** When true, render as a region (div) so Home can host Trace without nested main. */
+  embedded?: boolean;
+  backLabel?: string;
 }) {
   const delivery = anchor ? pasteDeliveryShell(deliveryId, anchor) : undefined;
   const { view, loading, error } = useDeliveryTrace(delivery, anchor, {
@@ -47,6 +52,7 @@ export function DeliveryTraceScreen({
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const nodeIdsKey = view?.nodes.map((n) => n.id).join("\0") ?? "";
+  const Root = embedded ? "div" : "main";
 
   // Keep selection across live refresh / tab switches; only reset when id gone.
   useEffect(() => {
@@ -59,10 +65,12 @@ export function DeliveryTraceScreen({
 
   if (!delivery || !view) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
+      <Root className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
         <p className="text-sm text-muted-foreground">This delivery is not available.</p>
-        <Button variant="ghost" onClick={onBack}>Back to Deliveries</Button>
-      </main>
+        <Button variant="ghost" onClick={onBack}>
+          {backLabel ?? "Back to Deliveries"}
+        </Button>
+      </Root>
     );
   }
 
@@ -77,8 +85,8 @@ export function DeliveryTraceScreen({
     : view.sourceErrors;
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="delivery-detail">
-      <DeliveryHeader view={view} originLabel={originLabel} error={error} onBack={onBack} />
+    <Root className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="delivery-detail">
+      <DeliveryHeader view={view} originLabel={originLabel} error={error} />
 
       <div className="flex min-h-0 flex-1 flex-col">
         {(view.partial || chainErrors.length > 0) && (
@@ -118,6 +126,7 @@ export function DeliveryTraceScreen({
                 node={selected}
                 incoming={incoming}
                 unitErrors={unitErrors}
+                view={view}
                 profile={profile}
                 profileId={profileId}
                 onExploreRuntime={onExploreRuntime}
@@ -126,7 +135,7 @@ export function DeliveryTraceScreen({
           />
         )}
       </div>
-    </main>
+    </Root>
   );
 }
 

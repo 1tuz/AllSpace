@@ -6,9 +6,17 @@ resources, and taking action. For installation see the
 [developer guide](DEVELOPMENT.md).
 
 > **This fork:** the current delivery-first desktop shell is a prototype. The
-> target flow is My Work → Delivery master/detail → scoped Kubernetes Explorer.
-> Sections below that describe the cluster hotbar describe the temporary
-> **classic** Kubernetes surface.
+> target flow is My Work (summary + inbox + inline maximizable Trace) → optional
+> Deliveries browse → scoped Kubernetes Explorer. Sections below that describe
+> the cluster hotbar describe the temporary **classic** Kubernetes surface.
+>
+> Separately, Settings → Appearance can switch **Classic design** vs **New
+> design (in progress)** (`srelens.design`). New design = `packages/ui-next`;
+> classic design then defaults to the workspace, with an escape hatch into the
+> classic K8s IDE. What is still missing from the new design relative to classic
+> is tracked in [`TODO.md`](../TODO.md#classic-to-ui-next-gap-k8s-ide-migration)
+> and explained in
+> [`DEVELOPMENT.md`](DEVELOPMENT.md#classic-vs-ui-next-vs-workspace-migration-map).
 
 srelens organises work around three loops — **discover** what is running,
 **understand** why it is behaving the way it is, and **operate** on it safely.
@@ -306,17 +314,37 @@ palette). Selecting a view opens its tab; selecting a resource opens its detail.
 
 ## Keyboard shortcuts
 
-Press **?** anywhere outside a text field for the full list, grouped by where
-each key applies. The ones worth knowing before you look:
+Press **?** anywhere outside a text field for the full list. Classic and the
+new design share that chord; each sheet lists the chords **that design**
+answers (so they are not the same table).
+
+### Worth knowing in either design
 
 | Key | Does |
 | --- | --- |
-| **Cmd/Ctrl-K** | Command palette |
-| **?** | This list |
-| **Cmd-W** (macOS only) | Close the tab — or the window, on the last one. It comes from the macOS app menu, so there is no Windows/Linux equivalent yet. |
+| **Cmd/Ctrl-K** | Classic: command palette. New design: console |
+| **?** | Shortcut list for the active design |
 | **Cmd/Ctrl +** / **-** / **0** | Interface larger / smaller / reset |
-| **Cmd/Ctrl-F** | Search the terminal's scrollback, or find in the YAML editor |
 | **Esc** | Close the open dialog, drawer, or search bar |
+
+### Classic (extra)
+
+| Key | Does |
+| --- | --- |
+| **Cmd-W** (macOS only) | Close the tab — or the window, on the last one (app menu) |
+| **Cmd/Ctrl-F** | Search the terminal's scrollback, or find in the YAML editor |
+
+### New design (extra)
+
+| Key | Does |
+| --- | --- |
+| **Cmd/Ctrl-T** | New tab |
+| **Cmd/Ctrl-W** | Close tab (all desktop OS) |
+| **Cmd/Ctrl-Shift-T** | Reopen last closed tab |
+| **Cmd/Ctrl-[** / **]** | Previous / next tab |
+| **Cmd/Ctrl-1…9** | Jump to tab |
+| **Cmd/Ctrl-Shift-L** | Lock the workspace |
+| Settings → Keyboard | Same list as **?** |
 
 ## Deep links
 

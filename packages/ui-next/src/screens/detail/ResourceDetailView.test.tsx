@@ -1255,9 +1255,7 @@ describe("ResourceDetailView", () => {
       <ResourceDetailView context="ctx" kind="Pod" namespace="checkout" name="cart-session-store-0" />,
     );
     await waitFor(() => expect(getByRole("tab", { name: "Metrics" })).toBeDefined());
-    // `Details Containers YAML Events Metrics`. Metrics is deferred and no
-    // kind's descriptor asks for it yet, so this order only bites the day one
-    // does — which is exactly when nobody would think to check it.
+    // `Details Containers YAML Events Metrics`.
     expect(getAllByRole("tab").map((t) => t.textContent)).toEqual([
       "Details",
       "Containers",

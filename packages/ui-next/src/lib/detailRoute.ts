@@ -41,8 +41,9 @@ export interface DetailRouteParts {
  * closed for `logs`, `shell` and `forward`; `Edit` was still minting one.
  *
  * No editor screen is registered for it yet, so the tab renders the
- * Placeholder — which is what `/incidents`, `/agent` and `/topology` do, and is
- * this design's own treatment of a screen the migration has not reached.
+ * Placeholder — which is what `/incidents` still does (Nav no longer offers it;
+ * Agent and Topology have real screens), and is this design's own treatment of
+ * a screen the migration has not reached.
  * `handoffFor` in `apps/desktop/src/design.ts` carries `{context, kind}` and no
  * name, so its "Open in classic" lands on the cluster overview exactly as it
  * does for a DETAIL route today. Reported rather than changed: that file is

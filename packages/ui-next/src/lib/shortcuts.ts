@@ -13,6 +13,24 @@ export type WindowAction =
   | { type: "zoom-out" }
   | { type: "zoom-reset" };
 
+/**
+ * Rows for Settings → Keyboard and the `?` cheat sheet. Labels live here so
+ * the pane and the overlay cannot disagree; chords always come from {@link hint}.
+ */
+export const WINDOW_SHORTCUT_ROWS: ReadonlyArray<{ type: WindowAction["type"]; label: string }> = [
+  { type: "console", label: "Open the console" },
+  { type: "lock", label: "Lock the workspace" },
+  { type: "new-tab", label: "New tab" },
+  { type: "close-tab", label: "Close tab" },
+  { type: "reopen-tab", label: "Reopen the last closed tab" },
+  { type: "prev-tab", label: "Previous tab" },
+  { type: "next-tab", label: "Next tab" },
+  { type: "select-tab", label: "Jump to a tab (1–9)" },
+  { type: "zoom-in", label: "Zoom in" },
+  { type: "zoom-out", label: "Zoom out" },
+  { type: "zoom-reset", label: "Reset zoom" },
+];
+
 type Binding = { chord: KeyToken[]; action: WindowAction; whileTyping?: boolean };
 
 /**
@@ -71,6 +89,10 @@ export function matchWindowKey(
 }
 
 export function hint(type: WindowAction["type"], apple: boolean): string {
+  if (type === "select-tab") {
+    // Nine chords share the action; show the range rather than only Mod+1.
+    return `${formatChord(["Mod", "1"], apple)}–${formatChord(["Mod", "9"], apple)}`;
+  }
   const b = BINDINGS.find((x) => x.action.type === type);
   return b ? formatChord(b.chord, apple) : "";
 }

@@ -26,13 +26,31 @@ import { SLUG_BY_K8S_KIND, isBuiltInKind, resolveCrdGvk } from "../../lib/crdGvk
 import { useObject } from "../../lib/useObject";
 import { ConfigDetailsBody } from "./ConfigBody";
 import { CronJobDetailsBody } from "./CronJobBody";
+import { EndpointsDetailsBody, EndpointSliceDetailsBody } from "./EndpointsBody";
 import { GenericBody, identityFacts } from "./GenericBody";
+import { HpaDetailsBody } from "./HpaBody";
+import { IngressDetailsBody } from "./IngressBody";
+import { IngressClassDetailsBody } from "./IngressClassBody";
 import { JobDetailsBody } from "./JobBody";
+import { LeaseDetailsBody } from "./LeaseBody";
+import { LimitRangeDetailsBody } from "./LimitRangeBody";
+import { MetricsBody } from "./MetricsBody";
+import { NetworkPolicyDetailsBody } from "./NetworkPolicyBody";
 import { NodeDetailsBody } from "./NodeBody";
+import { PdbDetailsBody } from "./PdbBody";
 import { PodContainersBody, PodContainersTable, PodDetailsBody, podFacts } from "./PodBody";
+import { PriorityClassDetailsBody } from "./PriorityClassBody";
+import { PersistentVolumeDetailsBody, PvcDetailsBody } from "./PvcBody";
+import { kindOffersRelations, RelationsBody } from "./RelationsBody";
+import { ResourceQuotaDetailsBody } from "./ResourceQuotaBody";
+import { RoleBindingDetailsBody, RoleDetailsBody } from "./RoleBody";
+import { RuntimeClassDetailsBody } from "./RuntimeClassBody";
 import { AnnotationsSection, LabelsSection, NodePodsSection } from "./sections";
 import { SecretDetailsBody } from "./SecretBody";
+import { ServiceAccountDetailsBody } from "./ServiceAccountBody";
 import { ServiceDetailsBody } from "./ServiceBody";
+import { StorageClassDetailsBody } from "./StorageClassBody";
+import { WebhookDetailsBody } from "./WebhookBody";
 import { useDeployRevisions, WorkloadDetailsBody, workloadFacts, type RevisionsState } from "./WorkloadBody";
 import type { DetailFact, FactsFor } from "./facts";
 
@@ -118,6 +136,28 @@ export const DETAILS_BODY: Record<string, PaneBody> = {
   CronJob: CronJobDetailsBody,
   ConfigMap: ConfigDetailsBody,
   Secret: SecretDetailsBody,
+  Ingress: IngressDetailsBody,
+  PersistentVolumeClaim: PvcDetailsBody,
+  PersistentVolume: PersistentVolumeDetailsBody,
+  HorizontalPodAutoscaler: HpaDetailsBody,
+  NetworkPolicy: NetworkPolicyDetailsBody,
+  ServiceAccount: ServiceAccountDetailsBody,
+  ResourceQuota: ResourceQuotaDetailsBody,
+  PodDisruptionBudget: PdbDetailsBody,
+  Endpoints: EndpointsDetailsBody,
+  EndpointSlice: EndpointSliceDetailsBody,
+  Role: RoleDetailsBody,
+  ClusterRole: RoleDetailsBody,
+  RoleBinding: RoleBindingDetailsBody,
+  ClusterRoleBinding: RoleBindingDetailsBody,
+  PriorityClass: PriorityClassDetailsBody,
+  StorageClass: StorageClassDetailsBody,
+  RuntimeClass: RuntimeClassDetailsBody,
+  IngressClass: IngressClassDetailsBody,
+  LimitRange: LimitRangeDetailsBody,
+  Lease: LeaseDetailsBody,
+  MutatingWebhookConfiguration: WebhookDetailsBody,
+  ValidatingWebhookConfiguration: WebhookDetailsBody,
 };
 
 /**
@@ -155,8 +195,17 @@ const CONTAINERS_BODY: Record<string, PaneBody> = {
 };
 
 /** Same seam, for the Metrics pane a kind's descriptor opts into via
- *  `panes.metrics`. */
-const METRICS_BODY: Record<string, PaneBody> = {};
+ *  `panes.metrics`. Classic `MetricsPanel` kinds — Pod, Node, and workload
+ *  controllers that sum their pods. */
+const METRICS_BODY: Record<string, PaneBody> = {
+  Pod: MetricsBody,
+  Node: MetricsBody,
+  Deployment: MetricsBody,
+  StatefulSet: MetricsBody,
+  DaemonSet: MetricsBody,
+  ReplicaSet: MetricsBody,
+  Job: MetricsBody,
+};
 
 /**
  * The full tab's INLINE containers table — the same kinds as
@@ -286,6 +335,8 @@ export interface DetailSubject {
    *  folds the table into Overview. */
   hasContainers: boolean;
   hasMetrics: boolean;
+  /** Object-scoped Relations tab (classic WorkloadRelations). Full tab only. */
+  hasRelations: boolean;
   /** The lead fact list, as data. Each screen lays it out itself. */
   facts: DetailFact[];
   /** The kind's titled blocks — a flat run of sibling sections, drawn the
@@ -298,6 +349,8 @@ export interface DetailSubject {
   /** The full tab's inline containers table, for the same kinds. */
   containersTable: ReactNode;
   metricsPane: ReactNode;
+  /** Full-tab Relations pane — revisions, managed pods, CronJob jobs. */
+  relationsPane: ReactNode;
   /** Labels and Annotations close every kind's detail, so each screen places
    *  them — the peek stacks them under the rest, the tab reads them side by
    *  side. A body that drew them itself could only produce one of those.
@@ -337,6 +390,7 @@ export function useDetailSubject({
   // the kind HAS containers, and each screen decides where they go.
   const hasContainers = descriptor?.panes?.containers ?? false;
   const hasMetrics = descriptor?.panes?.metrics ?? false;
+  const hasRelations = object ? kindOffersRelations(kind, object) : false;
 
   // Fetched here rather than inside the workload body, because the fact list
   // needs it too and the fact list is data now — see `useDeployRevisions`'
@@ -364,6 +418,7 @@ export function useDetailSubject({
     statusLine: object ? resourceStatusLine(kind, object) : null,
     hasContainers,
     hasMetrics,
+    hasRelations,
     facts: object ? detailFacts({ kind, object, revisions }) : [],
     body: bodyProps && (
       <GenericBody kind={kind} object={object as K8sObject} context={context}>
@@ -378,6 +433,7 @@ export function useDetailSubject({
           createElement(ContainersTable, { object, context })
         : null,
     metricsPane: bodyProps && MetricsBody ? createElement(MetricsBody, bodyProps) : null,
+    relationsPane: bodyProps && hasRelations ? createElement(RelationsBody, bodyProps) : null,
     labels: <LabelsSection labels={meta.labels ?? {}} />,
     annotations: <AnnotationsSection kind={kind} annotations={meta.annotations ?? {}} />,
     afterMetadata:

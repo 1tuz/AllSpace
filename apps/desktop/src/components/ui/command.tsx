@@ -69,18 +69,23 @@ function CommandInput({
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
     <div data-slot="command-input-wrapper" className="p-1 pb-0">
-      <InputGroup className="h-8! rounded-lg! border-input/30 bg-input/30 shadow-none! *:data-[slot=input-group-addon]:pl-2!">
+      {/*
+        Icon first + flex-1 on the input. A prior `w-full` on the cmdk input
+        next to an inline-start addon overflowed the group so the search icon
+        sat outside the bordered field (profile Combobox in the rail).
+      */}
+      <InputGroup className="h-8! rounded-lg! border-input/30 bg-input/30 shadow-none!">
+        <InputGroupAddon align="inline-start">
+          <SearchIcon className="size-4 shrink-0 opacity-50" aria-hidden />
+        </InputGroupAddon>
         <CommandPrimitive.Input
           data-slot="command-input"
           className={cn(
-            "w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
+            "min-w-0 flex-1 bg-transparent px-2 text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
             className
           )}
           {...props}
         />
-        <InputGroupAddon>
-          <SearchIcon className="size-4 shrink-0 opacity-50" />
-        </InputGroupAddon>
       </InputGroup>
     </div>
   )

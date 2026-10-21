@@ -2,10 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const devopsMyWork = vi.hoisted(() => vi.fn());
+const devopsTraceDelivery = vi.hoisted(() => vi.fn());
 
 vi.mock("@srelens/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@srelens/core")>()),
   devopsMyWork,
+  devopsTraceDelivery,
 }));
 
 import { HomeScreen } from "./HomeScreen";
@@ -18,13 +20,22 @@ afterEach(() => {
 beforeEach(() => {
   devopsMyWork.mockReset();
   devopsMyWork.mockResolvedValue({ deliveries: [], partial: false, sourceErrors: [] });
+  devopsTraceDelivery.mockReset();
+  devopsTraceDelivery.mockResolvedValue({
+    nodes: [],
+    edges: [],
+    situations: [],
+    partial: false,
+    sourceErrors: [],
+  });
 });
 
 const appFarm = { id: "appfarm", label: "AppFarm", providers: [] };
+const noopExplore = () => {};
 
 describe("HomeScreen", () => {
   it("shows one calm screen-level empty state — never empty headings", async () => {
-    render(<HomeScreen profile={appFarm} onOpenDelivery={() => {}} />);
+    render(<HomeScreen profile={appFarm} onExploreRuntime={noopExplore} />);
 
     expect(await screen.findByTestId("home-live-empty")).toBeDefined();
     expect(screen.getByRole("status").textContent).toMatch(/Nothing needs attention/);
@@ -55,7 +66,7 @@ describe("HomeScreen", () => {
       sourceErrors: [],
     });
 
-    render(<HomeScreen profile={appFarm} onOpenDelivery={() => {}} />);
+    render(<HomeScreen profile={appFarm} onExploreRuntime={noopExplore} />);
 
     expect(await screen.findByText(/LIVE-1/)).toBeDefined();
     expect(screen.getByRole("heading", { name: "Needs attention" })).toBeDefined();
@@ -65,7 +76,7 @@ describe("HomeScreen", () => {
   it("does not treat a load failure as an empty inbox", async () => {
     devopsMyWork.mockRejectedValue(new Error("profile unreachable"));
 
-    render(<HomeScreen profile={appFarm} onOpenDelivery={() => {}} />);
+    render(<HomeScreen profile={appFarm} onExploreRuntime={noopExplore} />);
 
     expect(await screen.findByTestId("home-live-error")).toBeDefined();
     expect(screen.getByTestId("home-live-source-errors").textContent).toMatch(/profile unreachable/);
@@ -86,24 +97,25 @@ describe("HomeScreen", () => {
       ],
     });
 
-    render(<HomeScreen profile={appFarm} onOpenDelivery={() => {}} />);
+    render(<HomeScreen profile={appFarm} onExploreRuntime={noopExplore} />);
 
     expect(await screen.findByTestId("home-live-source-errors")).toBeDefined();
     expect(screen.getByText(/no credential is stored/)).toBeDefined();
     expect(screen.queryByTestId("home-live-empty")).toBeNull();
     expect(screen.queryByText(/Nothing needs attention right now/)).toBeNull();
     expect(screen.getByTestId("home-live-error")).toBeDefined();
+    expect(screen.queryByText(/Partial results/)).toBeNull();
   });
 
   it("has no developer-facing Home copy", () => {
-    render(<HomeScreen profile={appFarm} onOpenDelivery={() => {}} />);
+    render(<HomeScreen profile={appFarm} onExploreRuntime={noopExplore} />);
     expect(screen.queryByText(/Workspace is main/i)).toBeNull();
     expect(screen.queryByText(/sample data/i)).toBeNull();
     expect(screen.queryByText(/Dockview/i)).toBeNull();
     expect(screen.getByText("My Work")).toBeDefined();
   });
 
-  it("opens a live delivery with its anchor", async () => {
+  it("selects a live row inline without calling onOpenDelivery", async () => {
     const onOpen = vi.fn();
     devopsMyWork.mockResolvedValue({
       deliveries: [
@@ -123,13 +135,42 @@ describe("HomeScreen", () => {
       sourceErrors: [],
     });
 
-    render(<HomeScreen profile={appFarm} onOpenDelivery={onOpen} />);
+    render(
+      <HomeScreen profile={appFarm} onExploreRuntime={noopExplore} onOpenDelivery={onOpen} />,
+    );
     await waitFor(() => expect(screen.getByText(/LIVE-1/)).toBeDefined());
     fireEvent.click(screen.getByRole("button", { name: /Open delivery LIVE-1/ }));
-    expect(onOpen).toHaveBeenCalledWith("live-mr-1", {
-      kind: "pullRequest",
-      value: "!9",
-      source: "gitlab",
+
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("delivery-detail")).toBeDefined();
+    expect(screen.getByTestId("delivery-row").getAttribute("data-selected")).toBe("true");
+  });
+
+  it("maximizes the inbox widget from Home mosaic chrome", async () => {
+    devopsMyWork.mockResolvedValue({
+      deliveries: [
+        {
+          id: "live-mr-1",
+          anchor: { kind: "pullRequest", value: "!9", source: "gitlab" },
+          title: "Live change",
+          workId: "LIVE-1",
+          stage: "attention",
+          stageLabel: "Build failed",
+          situations: [],
+          partial: false,
+          sourceErrors: [],
+        },
+      ],
+      partial: false,
+      sourceErrors: [],
     });
+
+    render(<HomeScreen profile={appFarm} onExploreRuntime={noopExplore} />);
+    await waitFor(() => expect(screen.getByText(/LIVE-1/)).toBeDefined());
+
+    const inbox = screen.getByTestId("home-widget-inbox");
+    fireEvent.click(inbox.querySelector("button")!);
+    expect(inbox.getAttribute("data-maximized")).toBe("true");
+    expect(screen.getByTestId("home-mosaic").getAttribute("data-home-mosaic-mode")).toBe("maximized");
   });
 });

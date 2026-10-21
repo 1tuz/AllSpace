@@ -3,6 +3,10 @@
     "shadcn": {
       "command": "npx",
       "args": ["shadcn@latest", "mcp"]
+    },
+    "srelens": {
+      "command": "srelens",
+      "args": ["--mcp-stdio"]
     }
   }
 }

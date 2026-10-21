@@ -52,7 +52,7 @@ const RESTARTABLE_KINDS: ResourceKind[] = ["deployments", "statefulsets", "daemo
  * Registry of resource-targeted mutating actions, one entry per
  * (capability, verb) pair. Covers every non-read-only, single-resource
  * capability in the catalog except: manifest editing (`k8s.applyManifest`),
- * ConfigMap/Secret data edits (`k8s.updateConfigData`, drawer-only — needs a
+ * ConfigMap/Secret data edits (`k8s.updateConfigData`, detail-pane only — needs a
  * key/value patch beyond a bare resource ref), context management
  * (`k8s.deleteContext`), and Helm/toolbox operations (their own release- or
  * plugin-scoped flows, not a single ResourceKind target). Task 3's audit

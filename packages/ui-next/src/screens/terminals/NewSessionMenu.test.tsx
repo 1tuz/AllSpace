@@ -150,6 +150,43 @@ describe("NewSessionMenu", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("prefills the pod when the opener already knew which one", async () => {
+    render(
+      <NewSessionMenu
+        context={CONTEXT}
+        namespace={NAMESPACE}
+        pod={POD}
+        onStarted={onStarted}
+        onClose={onClose}
+      />,
+    );
+
+    await waitFor(() => expect((screen.getByLabelText("Pod") as HTMLSelectElement).value).toBe(POD));
+    await waitFor(() =>
+      expect((screen.getByLabelText("Container") as HTMLSelectElement).disabled).toBe(false),
+    );
+    // Still editable — a prefill is a starting point, not a lock.
+    expect((screen.getByLabelText("Pod") as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  it("prefills the node when the opener already knew which one", async () => {
+    render(
+      <NewSessionMenu
+        context={CONTEXT}
+        kind="node"
+        node="eu-w4-c3-standard-a1"
+        onStarted={onStarted}
+        onClose={onClose}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Node" }).getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() =>
+      expect((screen.getByLabelText("Node") as HTMLSelectElement).value).toBe("eu-w4-c3-standard-a1"),
+    );
+    expect((screen.getByLabelText("Node") as HTMLSelectElement).disabled).toBe(false);
+  });
+
   it("starting a node session creates its debug pod, then attaches a shell tagged node", async () => {
     const user = userEvent.setup();
     render(

@@ -14,24 +14,29 @@
  * absent, never an empty heading — which falls out for free here, since a
  * group with no `Command` in the flat list below renders no heading at all.
  *
- * **`shell` and `forward` do not carry the mock's copy verbatim — a
- * deliberate deviation, decided in Task 6.** §F's `Open shell in
- * checkout-api` and `Port forward checkout-api` name the resource because the
- * mock's dock never actually navigates anywhere; the real one does, through
- * `openTab`, and neither destination has a way to arrive pre-selected.
- * `NewSessionMenuProps` (`screens/terminals/NewSessionMenu.tsx`) takes only
- * `context` and `namespace` — no pod field at all — and nothing wires a
- * target into `/forwards`' own header action either. Both dialogs open only
- * from a local button click on their own screen; there is no route-level or
- * cross-tab channel today that could hand a resource's identity to a dialog
- * mounted by a *different* screen's navigation, and building one is real
- * plumbing across two screens this step does not own. Landing a reader on
- * `/terminals` under a label that says `Open shell in checkout-api` would be
- * a promise the navigation cannot keep — worse than a generic label that
- * says what actually happens. So the labels below name the SCREEN the
- * command opens, not the resource, until one of those dialogs grows a way to
- * take it. `Follow logs` keeps the resource's name because `logsRoute` bakes
- * the identity into the URL itself — that promise the navigation does keep.
+ * **`shell` and `forward` carry the resource into the destination dialog.**
+ * Neither has a route of its own (a session menu and a forward dialog, not a
+ * URL), so identity travels through `lib/resourceHandoff`: the opener offers
+ * `{context, namespace, pod|kind+name}`, then `openTab`s `/terminals` or
+ * `/forwards`; that screen takes the intent once and opens `NewSessionMenu`
+ * or `NewForwardDialog` already pointed at it. Labels below therefore name
+ * the resource again — the navigation keeps that half of the mock's promise.
+ *
+ * **Action carries the verb into the detail's Pending confirm.** `openAction`
+ * offers `{context, kind, namespace, name, action}` through the same handoff
+ * module, then opens the resource's detail tab. `useRowMenu` (via
+ * DetailActions) takes the intent once and opens the row menu's own confirm —
+ * exactly one, never a second dialog over the dock, and never
+ * `PALETTE_ACTIONS.run` / a core mutate from Console. Labels below name the
+ * act because that confirm opens on landing. `trigger` is the exception: the
+ * row menu's Run now has no Pending, so its label still names the navigation.
+ *
+ * **What is still open.** The handoff prefills; it does not start. A shell
+ * still needs Start (and a container pick when the pod has more than one) —
+ * unlike `ResourceMenu`'s `Open shell`, which starts the session itself. A
+ * forward from `/` has no remote port (the palette never saw one), so the
+ * dialog still asks — same as the row menu's door. Auto-start and port
+ * discovery would be a later slice.
  *
  * **No Roll back.** Core has no rollout-undo capability for a Deployment's
  * revision history — `rolloutRestart`, `scale`, `evict`, `deletePod`,
@@ -40,12 +45,9 @@
  * moment it is run is worse than a command that was never drawn, so this
  * module draws none.
  *
- * **A destructive command navigates; it does not open a second dialog over
- * the dock.** `openAction` is the hand-off: Task 6 wires it to the exact
- * confirm the resource's own row menu opens, with the intent (`kind`,
- * `namespace`, `name`, `context`, `action`) carried across. That is what
- * keeps there being exactly one confirm for a mutation, in the tab that owns
- * the resource, rather than a second ungated door floating over the console.
+ * **A destructive command navigates with a handoff; it does not open a second
+ * dialog over the dock.** `openAction` is the hand-off: Console offers the
+ * intent, opens the detail tab, and ResourceMenu's Pending is the one confirm.
  * `deps.context` is read once, here, into each command's closure at BUILD
  * time — the same pin `useRowMenu`'s `Pending.context` takes and for the same
  * reason (`ResourceMenu.tsx`): the cluster rail can move between the
@@ -55,8 +57,9 @@
 import { K8S_KIND } from "@srelens/core";
 import { parseDetailRoute } from "./detailRoute";
 import { descriptorFor } from "./kinds/descriptors";
+import type { ActionHandoffVerb } from "./resourceHandoff";
 
-export type CommandGroup = "Action" | "Go" | "Cluster" | "Workspace";
+export type CommandGroup = "Quick" | "Recent" | "Action" | "Go" | "Cluster" | "Workspace" | "Resource";
 
 export interface Command {
   id: string;
@@ -67,9 +70,20 @@ export interface Command {
   run: () => void;
 }
 
+export interface ResourceTarget {
+  kind: string;
+  namespace: string | null;
+  name: string;
+}
+
 export interface CommandDeps {
   /** The active tab's route — what `Action` and `Go` are scoped to. */
   route: string;
+  /**
+   * When set (Console resource-palette drill), Action/Go use this resource
+   * instead of `parseDetailRoute(route)` — find-then-act without leaving `/`.
+   */
+  resourceTarget?: ResourceTarget | null;
   /** The kubeconfig context in focus, pinned into every command built here. */
   context: string;
   clusters: readonly { id: string; name: string }[];
@@ -100,24 +114,27 @@ export interface CommandDeps {
     namespace: string;
     name: string;
     context: string;
-    action: "scale" | "restart";
+    action: ActionHandoffVerb;
   }) => void;
   /**
    * Opens `Follow logs` / `Open shell` / `Port forward` on a resource, with
    * the identity carried across — the same reason `openAction` exists rather
-   * than a bare navigation: `Open shell` and `Port forward` have no route of
-   * their own (a session and a dialog, not a route), so a bare `openTab`
-   * lands on `/terminals` or `/forwards` with nothing to say which resource
-   * it was for. Task 6 implements this against the real capability and
-   * screen; this module only names the intent.
+   * than a bare navigation. `shell` and `forward` have no route of their own;
+   * Console offers them through `lib/resourceHandoff` so the destination
+   * dialog opens already pointed at the resource.
    */
   openResource: (r: {
     kind: string;
     namespace: string;
     name: string;
     context: string;
-    as: "logs" | "shell" | "forward";
+    as: "logs" | "shell" | "forward" | "detail";
   }) => void;
+  /**
+   * Leaves resource-palette drill mode. Only set while a search hit is pinned
+   * as `resourceTarget`; absent on the ordinary route-scoped palette.
+   */
+  leaveResource?: () => void;
 }
 
 /**
@@ -134,11 +151,12 @@ const SLUG_BY_K8S_KIND: Record<string, string> = Object.fromEntries(
 );
 
 /**
- * `Action` and `Go` — both scoped to the one resource `deps.route` names, and
- * both absent when it names none.
+ * `Action` and `Go` — scoped to `resourceTarget` when drilling from a search
+ * hit, otherwise to the one resource `deps.route` names. Absent when neither
+ * names a resource.
  */
 function resourceCommands(deps: CommandDeps): Command[] {
-  const detail = parseDetailRoute(deps.route);
+  const detail = deps.resourceTarget ?? parseDetailRoute(deps.route);
   if (!detail) return [];
   const { kind, namespace, name } = detail;
   const ns = namespace ?? "";
@@ -153,24 +171,29 @@ function resourceCommands(deps: CommandDeps): Command[] {
 
   const commands: Command[] = [];
 
+  // Drill-only: the active route already IS the detail, so "Open …" would be
+  // a no-op there. After a search hit, this is the non-destructive default.
+  if (deps.resourceTarget) {
+    commands.push({
+      id: "details",
+      group: "Go",
+      label: `Open ${kind}/${name}`,
+      hint: "detail",
+      run: () => deps.openResource({ kind, namespace: ns, name, context, as: "detail" }),
+    });
+  }
+
+  // Action verbs whose handoff opens ResourceMenu's Pending on the detail.
+  // Labels name the act because that confirm lands with the tab. `danger` for
+  // the same verbs the row menu marks danger — colour still means "this
+  // opens a destructive confirm", not "this writes now".
   if (actions.restart) {
     commands.push({
       id: "restart",
       group: "Action",
-      // Names the NAVIGATION, not the act. `openAction` lands the reader on
-      // the resource's own tab, where `DetailActions`/`useRowMenu` own the
-      // confirm; nothing carries the specific intent across a tab open. A row
-      // labelled `Restart deploy/checkout-api` that restarts nothing and
-      // raises no confirm is a promise the command cannot keep — the same
-      // reason Task 6 relabelled `shell` and `forward` (see the module doc).
-      // The resource's name stays, because `detailRoute` bakes the identity
-      // into the URL and that half the navigation does keep.
-      label: `Open ${kind}/${name} to restart it`,
-      hint: "rollout restart lives on the resource",
-      // No `danger`. `danger?: true` is a present-means-dangerous flag, and
-      // this navigates: the confirm it lands on is where the danger is.
-      // Colouring a navigation red trains the reader to discount the colour
-      // where it does mean something.
+      label: `Restart ${kind}/${name}`,
+      hint: "confirm on the resource",
+      danger: true,
       run: () => deps.openAction({ kind, namespace: ns, name, context, action: "restart" }),
     });
   }
@@ -178,24 +201,62 @@ function resourceCommands(deps: CommandDeps): Command[] {
     commands.push({
       id: "scale",
       group: "Action",
-      label: `Open ${kind}/${name} to scale it`,
-      hint: "replica count lives on the resource",
+      label: `Scale ${kind}/${name}`,
+      hint: "confirm on the resource",
+      danger: true,
       run: () => deps.openAction({ kind, namespace: ns, name, context, action: "scale" }),
+    });
+  }
+  if (actions.evict) {
+    commands.push({
+      id: "evict",
+      group: "Action",
+      label: `Evict ${kind}/${name}`,
+      hint: "confirm on the resource",
+      danger: true,
+      run: () => deps.openAction({ kind, namespace: ns, name, context, action: "evict" }),
+    });
+  }
+  // Absent / true offers Delete — same default as `KindActions.delete`.
+  if (actions.delete !== false) {
+    commands.push({
+      id: "delete",
+      group: "Action",
+      label: `Delete ${kind}/${name}`,
+      hint: "confirm on the resource",
+      danger: true,
+      run: () => deps.openAction({ kind, namespace: ns, name, context, action: "delete" }),
+    });
+  }
+  if (actions.suspend) {
+    commands.push({
+      id: "suspend",
+      group: "Action",
+      // Palette has no suspended bit; the confirm labels Suspend vs Resume from
+      // the row once the detail takes the handoff.
+      label: `Suspend / resume ${kind}/${name}`,
+      hint: "confirm on the resource",
+      run: () => deps.openAction({ kind, namespace: ns, name, context, action: "suspend" }),
+    });
+  }
+  if (actions.trigger) {
+    commands.push({
+      id: "trigger",
+      group: "Action",
+      // Run now has no Pending on the row menu — this only opens the detail.
+      label: `Open ${kind}/${name} to run it`,
+      hint: "Run now lives on the resource",
+      run: () => deps.openAction({ kind, namespace: ns, name, context, action: "trigger" }),
     });
   }
 
   // Every `Go` command hands the full resource identity to `openResource`
   // rather than opening a bare route: `Open shell` and `Port forward` have no
-  // route of their own to carry the subject through (a session and a dialog,
-  // not a route), and building that capability here — reaching into
-  // `sessions.ts` or the forward dialog directly — is not this step's to do.
-  // `Follow logs` goes through the same door for the same reason `openAction`
-  // is one door rather than two: one hand-off, fully specified, that Task 6
-  // maps to `openTab(logsRoute(...), { clusterName: context })` on its side.
-  // `kind`/`namespace`/`name` still travel to `openResource` for `shell` and
-  // `forward` too, even though Task 6's own wiring cannot use them today (see
-  // the module doc) — a future widening of either destination reads them off
-  // this same call rather than a second one threaded through later.
+  // route of their own to carry the subject through (a session menu and a
+  // dialog, not a route). Console maps them through `lib/resourceHandoff` so
+  // the destination opens already pointed at the resource. `Follow logs`
+  // goes through the same door for the same reason `openAction` is one door
+  // rather than two: one hand-off, fully specified.
   if (actions.logs) {
     commands.push({
       id: "logs",
@@ -209,10 +270,8 @@ function resourceCommands(deps: CommandDeps): Command[] {
     commands.push({
       id: "shell",
       group: "Go",
-      // Not `Open shell in ${name}` — see the module doc's "deliberate
-      // deviation" note. This opens Terminals; it does not attach to `name`.
-      label: "Open a shell",
-      hint: "Terminals · pick the pod there",
+      label: `Open shell in ${name}`,
+      hint: "Terminals · pod preselected",
       run: () => deps.openResource({ kind, namespace: ns, name, context, as: "shell" }),
     });
   }
@@ -220,10 +279,19 @@ function resourceCommands(deps: CommandDeps): Command[] {
     commands.push({
       id: "forward",
       group: "Go",
-      // Not `Port forward ${name}` — same reason as `shell`, above.
-      label: "Port forward",
-      hint: "Forwards · pick the target there",
+      label: `Port forward ${name}`,
+      hint: "Forwards · target preselected",
       run: () => deps.openResource({ kind, namespace: ns, name, context, as: "forward" }),
+    });
+  }
+
+  if (deps.resourceTarget && deps.leaveResource) {
+    commands.push({
+      id: "back",
+      group: "Go",
+      label: "← Back to search",
+      hint: "clear drill",
+      run: () => deps.leaveResource!(),
     });
   }
 

@@ -63,6 +63,7 @@ import {
   Webhook,
   Wrench,
   X,
+  Zap,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -177,6 +178,8 @@ export const Icons = {
   agent: Bot,
   logs: ScrollText,
   terminal: Terminal,
+  /** Attach an ephemeral debug container — classic's Zap on Pod Debug. */
+  debug: Zap,
   helmreleases: ShipWheel,
   toolbox: Wrench,
   newresource: FilePlus,

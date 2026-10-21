@@ -11,6 +11,9 @@ on:
     branches: [dev, main, feat/ui-next]
   pull_request:
     branches: [dev, main, feat/ui-next]
+  # Manual reruns: SmallSpace's canonical branch is main, and a red run there
+  # must be reproducible without pushing an empty commit.
+  workflow_dispatch:
 
 # Pull requests share a per-ref group and cancel each other: a superseded run
 # tests a commit nobody will merge, so killing it saves minutes and loses

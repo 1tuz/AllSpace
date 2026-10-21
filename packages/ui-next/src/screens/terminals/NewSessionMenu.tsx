@@ -59,6 +59,24 @@ export interface NewSessionMenuProps {
   /** Where the namespace select starts, when the caller knows a good one. */
   namespace?: string;
   /**
+   * Pod to preselect when the opener already knows which one — the `/`
+   * palette's `Open shell` handoff, not the header's blank `New session`.
+   * Still editable; a prefill is a starting point, same rule as
+   * `NewForwardDialog`'s `target`.
+   */
+  pod?: string;
+  /**
+   * Session kind to open on — Overview's Node shell handoff lands on
+   * `node` with {@link NewSessionMenuProps.node} already picked; the header's
+   * blank `New session` leaves this unset and starts on `pod`.
+   */
+  kind?: Kind;
+  /**
+   * Node to preselect when the opener already knows which one — Overview's
+   * Node shell, not a blank pick. Still editable, same rule as `pod`.
+   */
+  node?: string;
+  /**
    * The cluster-moved banner, from the caller's own comparison — see
    * `lib/clusterMoved`. `undefined` from a door with nothing to compare.
    *
@@ -110,19 +128,28 @@ export interface NewSessionMenuProps {
  * `execCandidates`, and the container select only ever sees what survives
  * that filter.
  */
-export function NewSessionMenu({ context, namespace: initial, moved, onStarted, onClose }: NewSessionMenuProps) {
+export function NewSessionMenu({
+  context,
+  namespace: initial,
+  pod: initialPod,
+  kind: initialKind = "pod",
+  node: initialNode,
+  moved,
+  onStarted,
+  onClose,
+}: NewSessionMenuProps) {
   const desktop = isTauri();
-  const [kind, setKind] = useState<Kind>("pod");
+  const [kind, setKind] = useState<Kind>(initialKind);
 
   const [namespaces, setNamespaces] = useState<string[] | null>(null);
   const [namespace, setNamespace] = useState(initial ?? "");
   const [pods, setPods] = useState<string[] | null>(null);
-  const [pod, setPod] = useState("");
+  const [pod, setPod] = useState(initialPod ?? "");
   const [containers, setContainers] = useState<ContainerChoice[] | null>(null);
   const [container, setContainer] = useState("");
 
   const [nodes, setNodes] = useState<string[] | null>(null);
-  const [node, setNode] = useState("");
+  const [node, setNode] = useState(initialNode ?? "");
 
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<{ title: string; error: unknown } | null>(null);
@@ -198,7 +225,11 @@ export function NewSessionMenu({ context, namespace: initial, moved, onStarted, 
     void listNodes(context).then((out) => {
       if (!live) return;
       if (out.error) setFailure({ title: "Could not list this cluster's nodes", error: out.error });
-      setNodes((out.nodes ?? []).map((n) => n.name));
+      const names = (out.nodes ?? []).map((n) => n.name);
+      setNodes(names);
+      // Keep a handoff prefill when the listing still has it; clear only when
+      // the cluster's answer does not include that name.
+      setNode((current) => (names.includes(current) ? current : ""));
     });
     return () => {
       live = false;

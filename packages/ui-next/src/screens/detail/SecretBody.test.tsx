@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { K8sObject, PodMetric, PodSummary } from "@srelens/core";
 
@@ -10,10 +10,11 @@ import type { K8sObject, PodMetric, PodSummary } from "@srelens/core";
 // only so the composition test can render `GenericBody` without a live
 // cluster call escaping the mock boundary. `importOriginal` keeps every
 // formatter (`decodeBase64`, `dockerRegistries`, `formatBytes`, ...) intact.
-const { getSecret, podsForSelector, podMetrics } = vi.hoisted(() => ({
+const { getSecret, podsForSelector, podMetrics, updateConfigData } = vi.hoisted(() => ({
   getSecret: vi.fn(async (): Promise<{ data?: Record<string, string>; error?: string }> => ({ data: undefined })),
   podsForSelector: vi.fn(async (): Promise<{ pods?: PodSummary[]; error?: string }> => ({ pods: [] })),
   podMetrics: vi.fn(async (): Promise<{ metrics?: PodMetric[]; error?: string }> => ({ metrics: [] })),
+  updateConfigData: vi.fn(async () => ({ ok: true })),
 }));
 
 vi.mock("@srelens/core", async (importOriginal) => ({
@@ -21,7 +22,14 @@ vi.mock("@srelens/core", async (importOriginal) => ({
   getSecret,
   podsForSelector,
   podMetrics,
+  updateConfigData,
 }));
+
+vi.mock("@srelens/core/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@srelens/core/react")>();
+  return { ...actual, useAccess: vi.fn() };
+});
+import { useAccess } from "@srelens/core/react";
 
 import { GenericBody } from "./GenericBody";
 import { detailFacts } from "./detailData";
@@ -55,6 +63,13 @@ describe("SecretDetailsBody", () => {
     getSecret.mockResolvedValue({ data: undefined });
     podsForSelector.mockResolvedValue({ pods: [] });
     podMetrics.mockResolvedValue({ metrics: [] });
+    updateConfigData.mockResolvedValue({ ok: true });
+    vi.mocked(useAccess).mockReturnValue({
+      allowed: () => true,
+      reason: () => "",
+      known: () => true,
+      loading: false,
+    });
   });
 
   describe("the secrecy ruling", () => {
@@ -71,9 +86,12 @@ describe("SecretDetailsBody", () => {
       expect(screen.queryByText(FIXTURE_VALUE)).toBeNull();
 
       await userEvent.click(screen.getByRole("button", { name: "Reveal" }));
-      await waitFor(() => expect(documentContains(FIXTURE_VALUE)).toBe(true));
+      await waitFor(() =>
+        expect((screen.getByLabelText("Value for token") as HTMLTextAreaElement).value).toBe(FIXTURE_VALUE),
+      );
 
       await userEvent.click(screen.getByRole("button", { name: "Hide" }));
+      expect(screen.queryByLabelText("Value for token")).toBeNull();
       expect(documentContains(FIXTURE_VALUE)).toBe(false);
     });
 
@@ -130,6 +148,48 @@ describe("SecretDetailsBody", () => {
       await waitFor(() => expect(getSecret).toHaveBeenCalled());
       expect(screen.queryByText("TLS material")).toBeNull();
       expect(screen.queryByText("Docker registries")).toBeNull();
+    });
+
+    it("saves an edited value via updateConfigData only after reveal", async () => {
+      getSecret.mockResolvedValue({ data: { token: FIXTURE_B64 } });
+      render(<SecretDetailsBody object={secret({ token: "" })} context="kind-dev" />);
+      await waitFor(() => expect(getSecret).toHaveBeenCalled());
+
+      expect(screen.queryByLabelText("Value for token")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: "Reveal" }));
+      const field = await screen.findByLabelText("Value for token");
+      fireEvent.change(field, { target: { value: "fixture-only-edited" } });
+      fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+      await waitFor(() =>
+        expect(updateConfigData).toHaveBeenCalledWith("kind-dev", "Secret", "default", "s-1", {
+          token: "fixture-only-edited",
+        }),
+      );
+    });
+
+    it("keeps Reveal disabled and Save absent while getSecret is still in flight", () => {
+      getSecret.mockImplementation(() => new Promise(() => {}));
+      render(<SecretDetailsBody object={secret({ token: "" })} context="ctx" />);
+      const reveal = screen.getByRole("button", { name: "Reveal" }) as HTMLButtonElement;
+      expect(reveal.disabled).toBe(true);
+      expect(screen.getByText("Reading values…")).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    });
+
+    it("withholds editing on an immutable Secret", async () => {
+      getSecret.mockResolvedValue({ data: { token: FIXTURE_B64 } });
+      render(
+        <SecretDetailsBody object={secret({ token: "" }, { type: "Opaque", immutable: true })} context="kind-dev" />,
+      );
+      await waitFor(() => expect(getSecret).toHaveBeenCalled());
+      await userEvent.click(screen.getByRole("button", { name: "Reveal" }));
+      const field = await screen.findByLabelText("Value for token");
+      expect((field as HTMLTextAreaElement).readOnly).toBe(true);
+      fireEvent.change(field, { target: { value: "fixture-only-edited" } });
+      expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+      expect(updateConfigData).not.toHaveBeenCalled();
     });
   });
 

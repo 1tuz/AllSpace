@@ -1060,47 +1060,87 @@ html[data-glass="liquid"] #root {
   background-color: transparent !important;
 }
 
+/* One frost for the whole shell. Child columns/controls stay clear so
+   bg-input/30, bg-muted/50, table rows, etc. cannot stack different opacities. */
 html[data-glass="liquid"] .workspace-shell {
+  backdrop-filter: saturate(1.5) blur(28px);
+  -webkit-backdrop-filter: saturate(1.5) blur(28px);
+  background-color: color-mix(in oklab, var(--background) 38%, transparent);
+  box-shadow: none;
+}
+
+html[data-glass="liquid"] .workspace-shell__rail,
+html[data-glass="liquid"] .workspace-shell > .flex-1 {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   background: transparent !important;
   background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 html[data-glass="liquid"] .workspace-shell__rail {
-  backdrop-filter: saturate(1.9) blur(32px);
-  -webkit-backdrop-filter: saturate(1.9) blur(32px);
-  background-color: color-mix(in oklab, var(--sidebar, var(--muted)) 42%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, white 22%, transparent),
-    1px 0 0 color-mix(in oklab, white 6%, transparent);
+  border-right-color: color-mix(in oklab, var(--border) 55%, transparent);
 }
 
-html[data-glass="liquid"] .workspace-shell > .flex-1 {
-  backdrop-filter: saturate(1.4) blur(18px);
-  -webkit-backdrop-filter: saturate(1.4) blur(18px);
-  background-color: color-mix(in oklab, var(--background) 62%, transparent);
+html[data-glass="liquid"] .workspace-shell__rail > .border-b,
+html[data-glass="liquid"] .workspace-shell__rail > .border-t,
+html[data-glass="liquid"] .workspace-shell__rail .border-t {
+  border-color: color-mix(in oklab, var(--border) 40%, transparent);
 }
 
-/* Whole UI — opaque Tailwind fills were masking native glass after the shell. */
-html[data-glass="liquid"] .workspace-shell .bg-background,
-html[data-glass="liquid"] .workspace-shell header,
-html[data-glass="liquid"] .workspace-shell main,
-html[data-glass="liquid"] .workspace-shell [data-testid^="workspace-panel-"] {
-  backdrop-filter: saturate(1.35) blur(16px);
-  -webkit-backdrop-filter: saturate(1.35) blur(16px);
-  background-color: color-mix(in oklab, var(--background) 68%, transparent) !important;
+/* Neutral chrome fills only — keep bg-primary / status colors for signals.
+   Dense lists/tables keep their utility paints so selection/hover stay readable. */
+html[data-glass="liquid"] .workspace-shell :is(
+  [class*="bg-background"],
+  [class*="bg-card"],
+  [class*="bg-muted"],
+  [class*="bg-sidebar"],
+  [class*="bg-popover"],
+  [class*="bg-accent"],
+  [class*="bg-secondary"],
+  [class*="bg-input"],
+  [class*="bg-border"]
+):not(.workspace-dense-row, .fl-data-table__row, .fl-data-table__head) {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
 }
 
-html[data-glass="liquid"] .workspace-shell .bg-card,
-html[data-glass="liquid"] .workspace-shell .bg-muted,
-html[data-glass="liquid"] .workspace-shell .bg-sidebar {
-  background-color: color-mix(in oklab, var(--card, var(--muted)) 55%, transparent) !important;
+html[data-glass="liquid"] .workspace-shell :is(.shadow-sm, .shadow-xs, .shadow-md) {
+  box-shadow: none !important;
 }
 
-html[data-glass="liquid"] .workspace-palette,
+/* Palette is a modal layer above the shell — same material. */
 html[data-glass="liquid"] [data-testid="workspace-palette"] > div {
-  backdrop-filter: saturate(1.6) blur(20px);
-  -webkit-backdrop-filter: saturate(1.6) blur(20px);
-  background-color: color-mix(in oklab, var(--background) 72%, transparent);
+  backdrop-filter: saturate(1.5) blur(28px);
+  -webkit-backdrop-filter: saturate(1.5) blur(28px);
+  background-color: color-mix(in oklab, var(--background) 38%, transparent);
+  box-shadow: none;
+}
+
+/* Portaled popovers (Combobox, menus) mount on body, outside .workspace-shell —
+   without this they stay solid charcoal over native vibrancy. */
+html[data-glass="liquid"] [data-slot="popover-content"] {
+  backdrop-filter: saturate(1.5) blur(28px);
+  -webkit-backdrop-filter: saturate(1.5) blur(28px);
+  background-color: color-mix(in oklab, var(--background) 38%, transparent);
+  box-shadow: none;
+}
+
+html[data-glass="liquid"] [data-slot="popover-content"] :is(
+  [class*="bg-popover"],
+  [class*="bg-background"],
+  [class*="bg-muted"],
+  [class*="bg-input"],
+  [class*="bg-accent"]
+) {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -1117,19 +1157,26 @@ html[data-glass="liquid"] [data-testid="workspace-palette"] > div {
   html[data-glass="liquid"] .workspace-shell,
   html[data-glass="liquid"] .workspace-shell > .flex-1,
   html[data-glass="liquid"] .workspace-shell__rail,
-  html[data-glass="liquid"] .workspace-shell .bg-background,
-  html[data-glass="liquid"] .workspace-shell header,
-  html[data-glass="liquid"] .workspace-shell main,
-  html[data-glass="liquid"] .workspace-shell [data-testid^="workspace-panel-"],
-  html[data-glass="liquid"] .workspace-shell .bg-card,
-  html[data-glass="liquid"] .workspace-shell .bg-muted,
-  html[data-glass="liquid"] .workspace-shell .bg-sidebar,
-  html[data-glass="liquid"] .workspace-palette,
-  html[data-glass="liquid"] [data-testid="workspace-palette"] > div {
+  html[data-glass="liquid"] [data-testid="workspace-palette"] > div,
+  html[data-glass="liquid"] [data-slot="popover-content"] {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background: var(--sidebar, var(--background)) !important;
     background-color: var(--sidebar, var(--background)) !important;
     box-shadow: none;
+  }
+
+  html[data-glass="liquid"] .workspace-shell :is(
+    [class*="bg-background"],
+    [class*="bg-card"],
+    [class*="bg-muted"],
+    [class*="bg-sidebar"],
+    [class*="bg-popover"],
+    [class*="bg-accent"],
+    [class*="bg-secondary"],
+    [class*="bg-input"],
+    [class*="bg-border"]
+  ):not(.workspace-dense-row, .fl-data-table__row, .fl-data-table__head) {
+    background-color: inherit;
   }
 }

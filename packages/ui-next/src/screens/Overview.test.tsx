@@ -58,6 +58,7 @@ import {
 import { Overview } from "./Overview";
 import { CACHE_TTL_MS, clearResourceCache } from "../lib/cachedResource";
 import { ConsoleProvider } from "../console";
+import { peekShell, __resetResourceHandoffForTests } from "../lib/resourceHandoff";
 import { defaultState } from "../lib/tabs";
 import * as store from "../lib/tabsStore";
 import { resetContexts, setContexts, setKubeconfigFiles } from "../lib/clusters";
@@ -216,6 +217,7 @@ beforeEach(() => {
   // for the link. Neither survives a test.
   resetProbes();
   resetView();
+  __resetResourceHandoffForTests();
 });
 
 function open() {
@@ -620,6 +622,19 @@ describe("Overview — the node actions", () => {
     await waitFor(() => expect(within(dialog()!).getByText(/nodes\/eviction is forbidden/)).toBeTruthy());
     // Still open, so nothing reads as having succeeded.
     expect(dialog()).toBeTruthy();
+  });
+
+  it("Node shell offers the node to Terminals and opens that tab", async () => {
+    open();
+    await waitFor(() => expect(rowFor("n1")).toBeTruthy());
+
+    await userEvent.click(within(rowFor("n1")).getByRole("button", { name: "More actions" }));
+    await userEvent.click(screen.getByRole("button", { name: "Node shell" }));
+
+    expect(peekShell()).toEqual({ kind: "node", context: "prod-eu", node: "n1" });
+    expect(store.activeRoute()).toBe("/terminals");
+    const tab = store.currentWorkspace().tabs.find((t) => t.route === "/terminals");
+    expect(tab?.sub).toBe("prod-eu");
   });
 });
 

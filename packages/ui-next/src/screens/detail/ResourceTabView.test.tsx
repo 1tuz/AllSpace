@@ -219,11 +219,28 @@ describe("ResourceTabView — the full tab the design draws", () => {
   });
 
   describe("the tab strip", () => {
-    it("names Overview rather than the peek's Details, and shows only the panes that exist", async () => {
+    it("names Overview rather than the peek's Details, and shows Metrics when the kind offers it", async () => {
+      descriptorFor.mockReturnValue(podDescriptor({ panes: { containers: true, metrics: true } }));
       await openPod();
-      // Relations, Drill and Metrics are deferred and have no body; the strip
-      // names a pane only when there is something behind it.
+      // Drill is not on this strip (incident product). Metrics opts in via descriptor.
+      expect(tabNames()).toEqual(["Overview", "YAML", "Events", "Metrics"]);
+    });
+
+    it("keeps Metrics off the strip when the descriptor does not opt in", async () => {
+      await openPod();
       expect(tabNames()).toEqual(["Overview", "YAML", "Events"]);
+    });
+
+    it("draws the Metrics pane body when the tab is opened", async () => {
+      descriptorFor.mockReturnValue(podDescriptor({ panes: { containers: true, metrics: true } }));
+      podMetrics.mockResolvedValue({
+        metrics: [{ name: "cart-session-store-1", cpuMillicores: 250, memoryMiB: 64 }] as PodMetric[],
+      });
+      await openPod();
+      await userEvent.click(screen.getByRole("tab", { name: "Metrics" }));
+      await waitFor(() => expect(screen.getByText("0.250 cores")).toBeDefined());
+      expect(screen.getByText("64 MiB")).toBeDefined();
+      expect(screen.getByText(/Live from the Kubernetes Metrics Server/)).toBeDefined();
     });
 
     it("keeps Containers off the strip — its table is inline on Overview", async () => {

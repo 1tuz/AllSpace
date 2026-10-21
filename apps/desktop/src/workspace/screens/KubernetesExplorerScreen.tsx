@@ -405,11 +405,21 @@ export function KubernetesExplorerScreen({
       <header className="border-b border-border px-6 py-5">
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Kubernetes</p>
         <h1 className="mt-1 text-xl font-semibold">Explorer</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Secondary mode. Cluster selection is scoped to the active contour&apos;s kubeconfig
-          files — not the shell&apos;s $KUBECONFIG or ~/.kube mix. AppFarm contexts use kubectl
-          oidc-login: expired tokens open the system browser for Keycloak (often daily).
+        <p className="mt-1 text-sm text-muted-foreground" data-testid="explorer-guidance">
+          Pick a cluster from the active contour, then browse workloads, YAML, logs, and shells.
         </p>
+        <details className="mt-2 max-w-2xl text-sm text-muted-foreground" data-testid="explorer-access-help">
+          <summary className="cursor-pointer text-foreground/80 hover:text-foreground">
+            How cluster access works
+          </summary>
+          <p className="mt-2">
+            Contexts come from this contour&apos;s kubeconfig files — not the shell&apos;s{" "}
+            <span className="font-mono text-xs">$KUBECONFIG</span> or{" "}
+            <span className="font-mono text-xs">~/.kube</span> mix. AppFarm contexts use{" "}
+            <span className="font-mono text-xs">kubectl oidc-login</span>: expired tokens open the
+            system browser for Keycloak (often daily).
+          </p>
+        </details>
         <div className="mt-4 flex max-w-2xl flex-wrap gap-2">
           <Combobox
             ariaLabel="Cluster context"
@@ -432,7 +442,9 @@ export function KubernetesExplorerScreen({
           </p>
         )}
         {contexts && !error && contexts.length === 0 && (
-          <p className="mt-3 text-sm text-muted-foreground">No kubeconfig contexts found. That is an empty result, not a failed call.</p>
+          <p className="mt-3 text-sm text-muted-foreground" data-testid="explorer-empty-contexts">
+            No clusters available for this contour.
+          </p>
         )}
         {selected && <p className="mt-3 text-sm">Selected context: <span className="font-mono">{selected}</span></p>}
         {scopeBits.length > 0 && (

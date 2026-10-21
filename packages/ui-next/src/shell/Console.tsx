@@ -18,7 +18,9 @@ import {
   type Command,
   type CommandDeps,
   type CommandGroup,
+  type ResourceTarget,
 } from "../lib/agentCommands";
+import { loadResourceIndex, resourceHitCommands, type PaletteResource } from "../lib/resourcePalette";
 import { AgentPicker } from "../screens/agent/AgentPicker";
 import { LOADING, type Read } from "../lib/read";
 import { contextLabelFor } from "../lib/agentSuggestions";
@@ -26,18 +28,48 @@ import { useContextLabel } from "../lib/contextLabel";
 import { askContextFor, runKeyFor } from "../lib/askContext";
 import { useNamespaces } from "../lib/workspace";
 import { readImageFile } from "../lib/pastedImages";
-import { isTauri, listAgents, type AgentInfo } from "@srelens/core";
+import {
+  getRecents,
+  isTauri,
+  listAgents,
+  listCrds,
+  pushRecent,
+  type AgentInfo,
+  type CrdRef,
+  type RecentItem,
+} from "@srelens/core";
 import { useActiveContext, useContexts } from "../lib/clusters";
 import { detailRoute } from "../lib/detailRoute";
+import { goToCommands } from "../lib/paletteNav";
+import { recentCommands, recentItemFromResource } from "../lib/paletteRecents";
 import { hint } from "../lib/shortcuts";
 import { openTab, setActiveCluster, switchWorkspace, useTabs } from "../lib/tabsStore";
+import { offerAction, offerForward, offerShell } from "../lib/resourceHandoff";
 import { logsRoute } from "../screens/Logs";
 import { Transcript } from "../screens/agent/Transcript";
 import { useWorkspaceSealed } from "./LockGate";
 import { isContextPaused } from "../lib/pausedContext";
 
-/** §F's four palette groups, in the order the mock lists them. */
-const GROUPS: readonly CommandGroup[] = ["Action", "Go", "Cluster", "Workspace"];
+/** §F's palette groups plus Resource / Recent / Quick, in list order. */
+const GROUPS: readonly CommandGroup[] = [
+  "Quick",
+  "Recent",
+  "Resource",
+  "Action",
+  "Go",
+  "Cluster",
+  "Workspace",
+];
+
+/** Resource drill (search hit or recent) keeps `/` open; everything else clears. */
+function keepsCommandMode(c: Command): boolean {
+  return (
+    c.group === "Resource" ||
+    c.id === "back" ||
+    c.id.startsWith("recent:res:") ||
+    c.id.startsWith("quick:res:")
+  );
+}
 
 /** §F's empty-palette line, verbatim. */
 const NO_COMMAND_MATCH = "No command matches. Press ⏎ to ask the agent instead.";
@@ -151,6 +183,17 @@ export function Console({ fullView }: { fullView?: boolean }) {
    * on every screen, and choosing the agent is part of asking.
    */
   const [agents, setAgents] = useState<Read<AgentInfo[]>>(LOADING);
+  /**
+   * Resource the `/` palette drilled into — Action/Go then follow KindActions
+   * for THAT resource, not only the active route. Cleared when leaving `/`.
+   */
+  const [resourceTarget, setResourceTarget] = useState<ResourceTarget | null>(null);
+  /** Cluster-wide name index for Resource hits; loaded while `/` mode is on. */
+  const [resourceIndex, setResourceIndex] = useState<PaletteResource[]>([]);
+  /** Discovered CRDs for Go-to nav; best-effort while `/` mode is on. */
+  const [crds, setCrds] = useState<CrdRef[]>([]);
+  /** Snapshot of shared recents when `/` opens (refreshed on each push). */
+  const [recents, setRecents] = useState<RecentItem[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -211,6 +254,34 @@ export function Console({ fullView }: { fullView?: boolean }) {
    */
   const isFullView = fullView === true || route === "/agent";
   const context = activeCtx?.name ?? "";
+  const commandMode = value.startsWith("/");
+
+  // Index resources + CRDs and read recents while `/` is open; drop drill when it closes.
+  useEffect(() => {
+    if (!commandMode) {
+      setResourceTarget(null);
+      setResourceIndex([]);
+      setCrds([]);
+      return;
+    }
+    setRecents(getRecents());
+    if (!context) return;
+    let active = true;
+    void loadResourceIndex(context).then((items) => {
+      if (active) setResourceIndex(items);
+    });
+    void listCrds(context)
+      .then((o) => {
+        if (active) setCrds(o.crds ?? []);
+      })
+      .catch(() => {
+        if (active) setCrds([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [commandMode, context]);
+
   // The reader's standing namespace narrowing for THIS cluster — the picker on
   // the list screens. Without it, a question asked from a list narrowed to one
   // namespace had the agent sweep every namespace in the cluster.
@@ -277,6 +348,13 @@ export function Console({ fullView }: { fullView?: boolean }) {
   const deps = useMemo<CommandDeps>(
     () => ({
       route,
+      resourceTarget,
+      leaveResource: resourceTarget
+        ? () => {
+            setResourceTarget(null);
+            setValue("/");
+          }
+        : undefined,
       context,
       // Only the clusters THIS workspace holds. `setActiveCluster` refuses an
       // id outside `workspace.clusters` and returns the workspace untouched
@@ -303,16 +381,24 @@ export function Console({ fullView }: { fullView?: boolean }) {
       switchWorkspace,
       onToggleTheme,
       openAction: (a) => {
-        // Ruling C: navigate to the resource, where its own row menu and
-        // detail actions already own the confirm for `restart`/`scale` — not
-        // a second one raised over the dock. This lands the reader on the
-        // resource's tab; it does not also reopen the SPECIFIC confirm the
-        // command named, which would need a way to carry that intent across
-        // a tab open that nothing here builds (see `openResource` below for
-        // the same limit on `shell`/`forward`).
+        // Ruling C: offer the verb through `resourceHandoff`, then navigate to
+        // the resource. DetailActions / `useRowMenu` take the intent once and
+        // open the row menu's own Pending — exactly one confirm, never a
+        // second dialog over the dock, never a core mutate from here.
+        offerAction({
+          context: a.context,
+          kind: a.kind,
+          namespace: a.namespace,
+          name: a.name,
+          action: a.action,
+        });
         openTab(detailRoute(a.kind, a.namespace || null, a.name), { clusterName: a.context });
       },
       openResource: (r) => {
+        if (r.as === "detail") {
+          openTab(detailRoute(r.kind, r.namespace || null, r.name), { clusterName: r.context });
+          return;
+        }
         if (r.as === "logs") {
           // The one shape with a route of its own: `logsRoute` bakes
           // kind/namespace/name into the URL itself, so this is the one `Go`
@@ -321,21 +407,71 @@ export function Console({ fullView }: { fullView?: boolean }) {
           openTab(logsRoute(r.kind, r.namespace, r.name), { clusterName: r.context });
           return;
         }
-        // `shell` and `forward` have no such route — see `agentCommands.ts`'s
-        // module doc for why, and why their labels no longer name the
-        // resource. `r.kind`/`r.namespace`/`r.name` go unused here on
-        // purpose: the day `NewSessionMenu` grows a `pod` field, or a target
-        // rides along a route param into `/forwards`, this is where that
-        // identity is already sitting, fully specified — do not delete the
-        // unused fields as dead weight, and do not re-add the resource's name
-        // to the command's label until the navigation can actually reach it.
-        openTab(r.as === "shell" ? "/terminals" : "/forwards", { clusterName: r.context });
+        // `shell` and `forward` have no route of their own — identity rides
+        // `lib/resourceHandoff` into the destination screen, which opens
+        // `NewSessionMenu` / `NewForwardDialog` already pointed at the
+        // resource. Labels name the resource again because that promise holds
+        // for the prefill; the reader still confirms Start (and a remote port
+        // for a forward the palette cannot know).
+        if (r.as === "shell") {
+          offerShell({ context: r.context, namespace: r.namespace, pod: r.name });
+          openTab("/terminals", { clusterName: r.context });
+          return;
+        }
+        offerForward({
+          context: r.context,
+          namespace: r.namespace,
+          kind: r.kind,
+          name: r.name,
+        });
+        openTab("/forwards", { clusterName: r.context });
       },
     }),
-    [route, context, contexts, workspace, workspaces, onToggleTheme],
+    [route, resourceTarget, context, contexts, workspace, workspaces, onToggleTheme, setValue],
   );
 
-  const commands = useMemo(() => commandsFor(deps), [deps]);
+  function recordRecent(item: RecentItem) {
+    pushRecent(item);
+    setRecents(getRecents());
+  }
+
+  function pickResource(r: PaletteResource) {
+    recordRecent(recentItemFromResource(r));
+    setResourceTarget(r);
+    setValue("/");
+  }
+
+  const paletteQuery = value.slice(1);
+
+  const recentHits = useMemo(() => {
+    if (resourceTarget || !commandMode) return [];
+    return recentCommands(recents, paletteQuery, {
+      context,
+      route,
+      openTab,
+      onPickResource: pickResource,
+      onOpenRecent: recordRecent,
+    });
+  }, [resourceTarget, commandMode, recents, paletteQuery, context, route]);
+
+  const goToHits = useMemo(() => {
+    if (resourceTarget || !commandMode) return [];
+    return goToCommands(crds, paletteQuery, {
+      context,
+      openTab,
+      onOpenRecent: recordRecent,
+    });
+  }, [resourceTarget, commandMode, crds, paletteQuery, context]);
+
+  const resourceHits = useMemo(() => {
+    if (resourceTarget || !commandMode) return [];
+    return resourceHitCommands(resourceIndex, paletteQuery, pickResource);
+  }, [resourceTarget, commandMode, resourceIndex, paletteQuery]);
+
+  const commands = useMemo(
+    () => [...recentHits, ...resourceHits, ...goToHits, ...commandsFor(deps)],
+    [recentHits, resourceHits, goToHits, deps],
+  );
 
   /**
    * Whether a question can be sent at all, and the reason drawn where the
@@ -398,7 +534,9 @@ export function Console({ fullView }: { fullView?: boolean }) {
       const matched = matchCommands(commands, raw.slice(1));
       if (matched.length > 0) {
         matched[0].run();
-        setValue("");
+        // Resource hits / recent-resource drills pin and keep `/`; Back resets
+        // to `/`. Clearing either would exit command mode.
+        if (!keepsCommandMode(matched[0])) setValue("");
         return;
       }
       // §F's own words for this: no command matched, so what was typed is
@@ -517,7 +655,6 @@ export function Console({ fullView }: { fullView?: boolean }) {
   // It used to mount a bespoke `Composer` there, which is what put two input
   // boxes on that screen and made one of them look like a different product.
 
-  const commandMode = value.startsWith("/");
   const exchanges = turns.filter((t) => t.role === "user").length;
 
   let children: ReactNode;
@@ -531,7 +668,8 @@ export function Console({ fullView }: { fullView?: boolean }) {
           commands={matched}
           onRun={(c) => {
             c.run();
-            setValue("");
+            // Same as Enter: Resource / recent-resource drill / Back keep `/`.
+            if (!keepsCommandMode(c)) setValue("");
           }}
         />
       );
@@ -596,7 +734,7 @@ export function Console({ fullView }: { fullView?: boolean }) {
       onValueChange={setValue}
       onSubmit={onSubmit}
       busy={busy}
-      mode={commandMode ? "Command" : "Agent"}
+      mode={commandMode ? (resourceTarget ? `Actions · ${resourceTarget.name}` : "Command") : "Agent"}
       // Empty rather than absent is a bordered chip with nothing in it, and
       // the console is unscoped until `Window`'s own effect (`contextLabelFor`)
       // has scoped it to the active route and cluster.

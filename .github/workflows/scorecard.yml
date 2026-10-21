@@ -55,7 +55,10 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: true
+          # The OpenSSF API publishes under the original project's identity.
+          # A migrated fork still gets the SARIF locally, but does not write
+          # a score to the external API.
+          publish_results: ${{ github.repository == 'srelens/srelens' }}
 
       # Kept for 5 days: long enough to compare two runs when a score moves,
       # short enough not to accumulate.

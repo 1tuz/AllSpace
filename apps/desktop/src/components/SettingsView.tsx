@@ -617,7 +617,8 @@ export function SettingsView({
                 <div className="fl-settings-field" role="group" aria-label="Materials">
                   <h3>Liquid glass</h3>
                   <p className="fl-settings-hint">
-                    Frosted glass on workspace chrome. Turns off under prefers-reduced-transparency.
+                    Frosted glass on chrome, palette, and popovers. Dense lists stay opaque. Turns off
+                    under prefers-reduced-transparency.
                   </p>
                   <Button
                     type="button"

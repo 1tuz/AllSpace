@@ -71,10 +71,13 @@ path.
 
 ## Architecture
 
-> **This fork:** product UI entry is `apps/desktop/src/workspace/` (delivery-first
-> shell). Platform capabilities stay in the registry / Kubernetes crates. Open work:
-> [`TODO.md`](../TODO.md). Product rules: [DevOps workspace shell](#devops-workspace-shell-this-fork)
-> below.
+> **This fork:** three UI surfaces share one capability core — do not conflate
+> them. (1) **New design** (`packages/ui-next`, opt-in via `srelens.design=next`).
+> (2) **DevOps workspace** (`apps/desktop/src/workspace/`, default product shell
+> when design is classic). (3) **Classic Kubernetes IDE** (`App.tsx` +
+> `components/`, escape hatch from workspace). Open work:
+> [`TODO.md`](../TODO.md). Product rules: [DevOps workspace shell](#devops-workspace-shell-this-fork).
+> Design migration: [Classic vs ui-next vs workspace](#classic-vs-ui-next-vs-workspace-migration-map).
 
 ### DevOps workspace shell (this fork)
 
@@ -83,22 +86,27 @@ runtime. **Salience** ([concepts](https://clegginabox.github.io/salience-macos/d
 [my-work](https://clegginabox.github.io/salience-macos/docs/my-work)) is the
 quality bar for UX *and* domain model — joined context, attention/situations,
 master-detail density, restrained macOS chrome. Copy the *feel* (hierarchy,
-compact rows, one focus per screen). Do not copy branding, logos, or a
+compact rows, one primary narrative). Do not copy branding, logos, or a
 pixel-perfect layout.
 
-**Product reference layout:** Deliveries — list left, trace
-detail right, summary strip, situations on rows. The React shell should converge
-on that composition, not on a wall of disconnected provider widgets.
+**Product reference layout:** Home — summary strip + My Work inbox + inline
+trace as a maximizable widget mosaic (`HomeMosaic` / `HomeWidget`). Selecting a
+delivery fills Trace without leaving My Work. Deliveries — browse list left,
+trace detail right, situations on rows. Sidebar tabs (Deliveries, Kubernetes,
+…) remain for deeper / alternate views. Converge on that joined unit-of-work
+composition, not a wall of disconnected provider widgets. Do not reintroduce
+Dockview.
 
 #### Product surfaces
 
 | Surface | Role | Code |
 | --- | --- | --- |
-| **Primary** | Default on launch; “what needs attention”; one delivery chain | `HomeScreen`, `DeliveriesScreen`, `DeliveryTraceScreen` |
+| **Primary** | Default on launch; mosaic My Work (summary / inbox / trace + maximize) | `HomeScreen`, `HomeMosaic`, `HomeWidget` |
+| **Browse** | Full delivery list + selected trace | `DeliveriesScreen`, `DeliveryTraceScreen` |
 | **Contextual** | Runtime depth when needed | `KubernetesExplorerScreen` |
 
-`WorkspaceApp` defaults to `home`. The delivery list keeps its selected trace
-beside it; runtime opens only as a contextual drill-down.
+`WorkspaceApp` defaults to `home`. Home and Deliveries keep the selected trace
+beside the list; runtime opens only as a contextual drill-down.
 
 #### Naming
 
@@ -108,15 +116,19 @@ beside it; runtime opens only as a contextual drill-down.
 
 #### What went wrong (2026-09 post-mortem)
 
-1. **Wrong hero screen** — a provider mosaic shipped before Home/Trace polish;
-   five panels without a unit-of-work narrative.
+1. **Wrong hero screen** — a *provider* mosaic (orphan Jira/GitLab/Jenkins
+   panels with no unit-of-work narrative) shipped before Home/Trace polish.
+   Dated lesson: joined delivery widgets on Home are intentional; disconnected
+   provider walls are not.
 2. **Inverted stages** — chrome effects before content density
    and Salience-like master-detail.
 3. **Double chrome** — panel headers repeated the screen hierarchy.
 4. **Provider errors as the whole panel** — should be partial trace +
    `sourceErrors`, not a full-pane failure wall.
 5. **Adapters exist; composition does not** — `jira` / `gitlab` / `bitbucket` /
-   `jenkins` + `devops-model` are fine; UI still reads as five tabs, not one graph.
+   `jenkins` + `devops-model` are fine; IA used to read as five tabs without a
+   joined Home surface (Home mosaic addresses the composition gap; secondary
+   sidebar destinations remain).
 
 Backend/modularity is not the blocker. **Composition, polish, and primary IA**
 are.
@@ -128,13 +140,96 @@ Tracked in [`TODO.md`](../TODO.md) — do not duplicate checklists here.
 #### Checks for workspace UI changes
 
 ```bash
-pnpm --filter @srelens/desktop test -- WorkspaceApp HomeScreen DeliveriesScreen DeliveryTrace
+pnpm --filter @srelens/desktop test -- WorkspaceApp HomeScreen HomeMosaic HomeWidget DeliveriesScreen DeliveryTrace
 pnpm --filter @srelens/desktop test -- qualityGates
 cargo test --workspace
 ```
 
 Drive the screen in the desktop app or Vite harness with stubs — green unit tests
 alone are not enough for layout work.
+
+### Classic vs ui-next vs workspace (migration map)
+
+srelens currently boots **one of two designs**, and the classic design path then
+picks a **product surface**. Testers and contributors mix these up; they are
+independent axes.
+
+| Preference | Values | Default | What mounts |
+| --- | --- | --- | --- |
+| `srelens.design` | `classic` \| `next` | `classic` | Classic → `AppGate`; next → `NextApp` (`@srelens/ui-next`) |
+| `srelens.productSurface` | `workspace` \| `classic` | `workspace` | Only when design is classic: delivery shell vs classic K8s IDE |
+
+Switching design reloads the window (`apps/desktop/src/design.ts` /
+`switchDesign`). The two stylesheets cannot share a document. Settings →
+Appearance exposes the toggle in **both** designs until migration step 11.
+
+```mermaid
+flowchart TD
+  boot[Bootstrap main.tsx]
+  boot --> design{srelens.design}
+  design -->|next| nextApp[NextApp · packages/ui-next]
+  design -->|classic| gate[AppGate]
+  gate --> surface{srelens.productSurface}
+  surface -->|workspace| ws[WorkspaceApp · delivery-first]
+  surface -->|classic| ide[App.tsx · classic K8s IDE]
+  ws -->|Open classic Kubernetes IDE| ide
+  nextApp -->|unported route / toggle| ide
+```
+
+#### What already lives in the new design
+
+Authoritative list: `PORTED_SCREENS` in `apps/desktop/src/design.ts` (mirrored by
+`SCREENS` / `screenFor` in `packages/ui-next/src/lib/routes.ts`). A route with no
+screen registration renders `Placeholder` and offers **Open in classic**.
+
+Broadly ported: Home, cluster overview, workloads, resource lists and details
+(`/k/…`), events, logs, port forwards, terminals, Helm, toolbox, topology,
+connections / connect, settings, agent, application log, release notes, edit /
+new, extension pages.
+
+#### Still classic-richer or classic-only
+
+Track the checklist in [`TODO.md`](../TODO.md#classic-to-ui-next-gap-k8s-ide-migration).
+Headline gaps as of the last doc refresh:
+
+- **Resource CommandPalette** — Console `/`: resource search, KindActions drill,
+  Recents, Go to kinds/CRDs, Action handoff → ResourceMenu Pending
+  (delete/evict/suspend/scale/restart). Caveats: CronJob Run now navigates
+  only; shell/forward prefills dialogs via `resourceHandoff` (not auto-start;
+  no remotePort from palette).
+- **Toolbox** — live under INVESTIGATE Nav (`/toolbox`).
+- **ConfigDataEditor** — live for ConfigMap + Opaque Secret inline edit/save.
+- **Pod Debug** — live (ephemeral debug container confirm → attach).
+- **Node shell** — Overview → Terminals via `offerNodeShell` / createNodeDebugPod.
+- **OverviewBodies** — classic `KindBody` set ported to `DETAILS_BODY` (incl.
+  Ingress/PVC/PV/HPA/NetPol/SA/RQ/PDB + Endpoints/RBAC/storage/webhooks/…).
+  Namespace/CRDs stay GenericBody like classic GenericDetail.
+- **Metrics** — live (`METRICS_BODY` / `MetricsBody` for Pod, Node, workloads).
+- **Relations** — live (`RelationsBody` for classic WorkloadRelations kinds).
+- **Skills CRUD** — Agent rail Manage skills (list/create/edit/save/delete);
+  Generate with AI deferred.
+- **`/incidents` + Drill** — not classic parity; Nav removed until a product
+  feed exists. Object-scoped `DrillCard` waits on that feed (workspace TODO
+  **Product: Incidents / Drill**).
+- **Bottom Dock** — intentional non-port; dedicated session screens + agent Console.
+- **Ask** — next uses `DetailActions` + Console scope, not classic `AssistantDrawer`.
+- **Settings** — Layout and cluster identity in next Settings; kubeconfig sources
+  under Connections/Connect; DevOps profiles stay in **workspace** Settings.
+
+#### Workspace is not the classic→next checklist
+
+`apps/desktop/src/workspace/` is the delivery-first product (My Work,
+Deliveries, Trace, contours). Its Kubernetes explorer still **embeds** classic
+`ResourceBrowser` until a workspace-native explorer replaces that embed (see
+workspace backlog in `TODO.md`). Do not file “port Deliveries into ui-next” as
+K8s IDE parity — that work stays on the workspace backlog.
+
+#### End state (migration step 11)
+
+When next is complete enough to be the only K8s IDE: delete `design.ts`, the
+Appearance design toggle, `Placeholder`, the `ported` / `onSwitchToClassic`
+injection path, and the classic IDE tree. Until then the toggle is the only
+safe way back to a full classic surface — do not remove it early.
 
 ---
 
@@ -321,7 +416,7 @@ Development is **test-driven — this is mandatory, not aspirational**:
   frontend code lived in one package, and each alone now sits below one of them. Run with
   `pnpm test` — `pnpm -r test` skips the workspace root and so enforces nothing.
   `src/main.tsx`, the test setup, and `PodTerminal.tsx` (xterm DOM integration, verified live) are excluded.
-- Rust: **55% lines, ratcheting toward 85** — the Tauri runtime shell is excluded from measurement via `--ignore-filename-regex`, and much of `crates/kube` needs a live cluster to exercise; the floor rises as cluster-bound integration tests land.
+- Rust: **85% lines** (`--fail-under-lines 85` in CI) — the Tauri runtime shell is excluded from measurement via `--ignore-filename-regex`; the floor is a ratchet and is never lowered.
 
 Never lower either floor.
 
@@ -404,15 +499,35 @@ technology, and its version.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs three jobs on every push and PR to `dev` or `main`:
+`.github/workflows/ci.yml` runs on every push and pull request to `main` (and
+the `dev` / `feat/ui-next` branches inherited from upstream), and on manual
+dispatch:
 
-- **frontend** — `pnpm build` + Vitest with the coverage threshold.
-- **backend** — `cargo llvm-cov` with the ratcheting coverage floor (see above).
-- **integration (kind)** — spins up a kind cluster and helm, then runs the `#[ignore]`d live-cluster suites: the full capability e2e suite (which enforces capability coverage) and the helm lifecycle suite. Without this job a new capability could land with no end-to-end case.
+- **frontend** — Node 26 and 24: `pnpm typecheck`, `pnpm build`, `pnpm test`
+  with the coverage floors, plus the workflow and perf-script tests.
+- **backend** — Linux system libraries, `cargo llvm-cov` over the workspace and
+  the kind-bound suites, then the 85% line floor.
+- **smoke (webdriver)** — PRs only: the real Tauri app through `tauri-driver`.
+- **install script** — shellcheck, the installer suite natively and as root.
+- **docker image** — builds the image without pushing it.
 
-All three must be green.
+All must be green.
 
-A separate Release workflow (`.github/workflows/release.yml`) publishes on pushes to `main` — Conventional-Commit-driven stable releases. Rolling `dev` pre-releases are **not** cut on every push: they come from a daily 18:00 UTC cron, or on demand via *Run workflow*. AUR publishing is split into `.github/workflows/aur-publish.yml` so it can also be run by hand.
+`.github/workflows/desktop-build.yml` builds unsigned desktop artifacts on
+pushes and PRs to `main`, and on manual dispatch: macOS Apple Silicon
+(`macos-15`, `.app.zip` + `.dmg`) and Linux x86_64 (`.deb` + `.AppImage`). The
+artifacts are named `srelens-desktop-macos-arm64` and
+`srelens-desktop-linux-x86_64`, kept 14 days, and published nowhere. Updater
+signatures are disabled: CI has no signing key and must not invent one.
+The updater points at SmallSpace; CI artifacts do not publish an update feed.
+Signed updates require a SmallSpace signing key and matching public key first.
+
+The canonical repository is `1tuz/SmallSpace`. The release pipeline
+(`release.yml`, `aur-publish.yml`, `homebrew-publish.yml`) is preserved from
+upstream but gated on `github.repository == 'srelens/srelens'`, so it cannot
+tag releases, push the GHCR image, or publish distro packages from SmallSpace.
+Scorecard still uploads SARIF locally, but publishes its external score only
+from the original repository.
 
 ### Release signing key (maintainers)
 
@@ -557,9 +672,9 @@ is *usable*.
 
 ## Conventions
 
-- **Branching** — `dev` is the default branch; open PRs against it. `main` carries stable releases.
+- **Branching** — `main` is SmallSpace's default branch; open PRs against it. The original `srelens/srelens` development branch remains an upstream reference.
 - **Commits** — imperative subject line, body explaining *why* when non-obvious. Stable releases are Conventional-Commit-driven, so use `feat(scope):` / `fix(scope):` prefixes.
 - **Formatting** — `cargo fmt` for Rust; the existing Prettier-ish style for TS (match surrounding code).
-- **UI** — the new design composes `@srelens/ui-kit` in `packages/ui-next`; shared tokens and component rules live in `packages/ui-kit/src/styles`. The classic design uses `src/components/ui` (shadcn/radix), `src/ui` and `src/ui/styles.css`. Use the owning design’s tokens rather than ad-hoc colours.
+- **UI** — three surfaces: new design (`@srelens/ui-kit` in `packages/ui-next`), classic IDE (`src/components/ui` shadcn/radix, `src/ui`, `src/ui/styles.css`), and the delivery workspace (`apps/desktop/src/workspace/`). Use the owning surface’s tokens; do not mix. Design toggle and remaining classic-only gaps: [migration map](#classic-vs-ui-next-vs-workspace-migration-map) and [`TODO.md`](../TODO.md#classic-to-ui-next-gap-k8s-ide-migration).
 - **No direct Tauri imports** outside `src/transport/`.
 - **No host-specific logic in `crates/`** — if a change only makes sense for the desktop or only for the web, it belongs in `apps/desktop/src-tauri` or `crates/server`, not in the shared core.

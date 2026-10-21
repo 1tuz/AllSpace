@@ -36,6 +36,9 @@ concurrency:
 jobs:
   publish:
     name: publish Homebrew (srelens-tui)
+    # The tap is the original project's channel. Manual dispatch in any other
+    # repository (including 1tuz/SmallSpace) must not reach it.
+    if: github.repository == 'srelens/srelens'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

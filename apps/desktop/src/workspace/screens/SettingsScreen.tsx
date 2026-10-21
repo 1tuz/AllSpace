@@ -13,23 +13,47 @@ export function SettingsScreen({
       <header className="border-b border-border px-6 py-5">
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Settings</p>
         <h1 className="mt-1 text-xl font-semibold">Workspace</h1>
-        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Connector credentials go into the encrypted vault (OS keychain master key by default —
-          no launch password gate on this workspace). Values are never read back into React.
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground" data-testid="settings-guidance">
+          Connector credentials are stored encrypted on this device. Values are never read back into
+          the UI.
         </p>
+        <details
+          className="mt-2 max-w-2xl text-sm text-muted-foreground"
+          data-testid="settings-vault-help"
+        >
+          <summary className="cursor-pointer text-foreground/80 hover:text-foreground">
+            How secrets are stored
+          </summary>
+          <p className="mt-2">
+            The encrypted vault uses an OS keychain master key by default — no launch password gate
+            on this workspace.
+          </p>
+        </details>
       </header>
       <div className="flex flex-col gap-8 px-6 py-5">
         <AppearanceSection />
         <DevOpsSettingsSection />
         <section className="max-w-2xl border-t border-border pt-5">
-          <h2 className="text-sm font-semibold">Kubernetes OIDC (AppFarm)</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            AppFarm kubeconfigs use <span className="font-mono text-xs">kubectl oidc-login</span>. When the
-            token expires (often daily), the next API call opens the system browser for Keycloak login —
-            same as bare kubectl. That is the exec plugin, not DevOps vault credentials. Keep
-            <span className="font-mono text-xs"> kubectl</span> / oidc-login on PATH (desktop already
-            repairs login-shell PATH at startup).
+          <h2 className="text-sm font-semibold">Cluster sign-in (AppFarm)</h2>
+          <p className="mt-2 text-sm text-muted-foreground" data-testid="settings-oidc-guidance">
+            Some AppFarm clusters ask you to sign in in the browser when the session expires —
+            usually once a day.
           </p>
+          <details
+            className="mt-2 text-sm text-muted-foreground"
+            data-testid="settings-oidc-help"
+          >
+            <summary className="cursor-pointer text-foreground/80 hover:text-foreground">
+              Technical details
+            </summary>
+            <p className="mt-2">
+              AppFarm kubeconfigs use{" "}
+              <span className="font-mono text-xs">kubectl oidc-login</span>. That is the exec
+              plugin, not DevOps vault credentials — same flow as bare kubectl. Keep{" "}
+              <span className="font-mono text-xs">kubectl</span> / oidc-login on PATH (desktop
+              already repairs login-shell PATH at startup).
+            </p>
+          </details>
         </section>
         {onOpenClassicIde && (
           <div>

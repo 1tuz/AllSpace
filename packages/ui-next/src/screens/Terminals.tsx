@@ -22,6 +22,7 @@ import {
   terminalFor,
   type TerminalSessionRow,
 } from "../lib/sessions";
+import { peekShell, subscribeShell, takeShell } from "../lib/resourceHandoff";
 import { NewSessionMenu } from "./terminals/NewSessionMenu";
 import {
   SESSION_RAIL_WIDTH,
@@ -209,8 +210,42 @@ export function Terminals(_props: { route: string }) {
    * opened somewhere else — a pod name read off production, exec'd on staging.
    * `ResourceMenu`'s `Open shell` pinned its own pick for the same reason.
    */
-  const [newSession, setNewSession] = useState<{ context: string; namespace: string } | null>(null);
+  const [newSession, setNewSession] = useState<{
+    context: string;
+    namespace: string;
+    pod?: string;
+    kind?: "pod" | "node";
+    node?: string;
+  } | null>(null);
   const targetPaused = useDismissOnPause(newSession?.context, () => setNewSession(null));
+
+  /**
+   * `/` (and any other opener) may have offered a shell intent before
+   * `openTab("/terminals")`. Take it once and open the menu already pointed
+   * at that pod or node — the same prefill `NewForwardDialog` already accepts
+   * for a forward. A bare header click still opens with only the rail's
+   * namespace.
+   */
+  const shellOffer = useSyncExternalStore(subscribeShell, peekShell, peekShell);
+  useEffect(() => {
+    if (!shellOffer) return;
+    const intent = takeShell();
+    if (!intent) return;
+    if (intent.kind === "node") {
+      setNewSession({
+        context: intent.context,
+        namespace: "",
+        kind: "node",
+        node: intent.node,
+      });
+      return;
+    }
+    setNewSession({
+      context: intent.context,
+      namespace: intent.namespace,
+      pod: intent.pod,
+    });
+  }, [shellOffer]);
 
   /**
    * A session started anywhere — this screen's menu, or the resource row
@@ -288,6 +323,9 @@ export function Terminals(_props: { route: string }) {
           // when there was no cluster rather than opening on an empty context.
           context={newSession.context}
           namespace={newSession.namespace}
+          pod={newSession.pod}
+          kind={newSession.kind}
+          node={newSession.node}
           // Stated, and nothing more — a session writes nothing to the cluster
           // and the terminal it opens is captioned with its own context. Same
           // rule as the row menu's container picker.

@@ -32,6 +32,11 @@ export function rowKey(row: ListRow): RowKey {
 export interface KindActions {
   logs?: boolean;
   shell?: boolean;
+  /**
+   * Pod only: attach an ephemeral debug container via `k8s.debugPod`, then
+   * open a shell into it. Classic's DetailActions Debug.
+   */
+  debug?: boolean;
   forward?: boolean;
   scale?: boolean;
   restart?: boolean;

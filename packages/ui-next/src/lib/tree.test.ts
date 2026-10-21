@@ -136,12 +136,18 @@ describe("routeForNode", () => {
 });
 
 describe("INVESTIGATE", () => {
-  it("is the control room, incidents, topology and the agent", () => {
+  it("is Home, Topology, Agent, Toolbox — not Incidents", () => {
+    // Incidents has no cluster data path yet (Overview's OpenIncidents says so).
+    // A Nav entry that opens Placeholder is a dead click; keep the route in
+    // describe() for persisted tabs, but do not offer it here.
+    // Toolbox's screen was already ported; without a row here the only way in
+    // was typing `/toolbox` (classic surfaces it from the hotbar).
     expect(INVESTIGATE.map((i) => [i.label, i.route])).toEqual([
       ["Home", "/"],
-      ["Incidents", "/incidents"],
       ["Topology", "/topology"],
       ["Agent", "/agent"],
+      ["Toolbox", "/toolbox"],
     ]);
+    expect(INVESTIGATE.some((i) => i.route === "/incidents")).toBe(false);
   });
 });

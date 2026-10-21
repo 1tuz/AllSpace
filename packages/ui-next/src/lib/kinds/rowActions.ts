@@ -23,6 +23,7 @@ export const ROW_ACTION_LABEL = {
   openTab: "Open in new tab",
   logs: "Follow logs",
   shell: "Open shell",
+  debug: "Debug",
   forward: "Port forward",
   edit: "Edit",
   copy: "Copy as kubectl",

@@ -254,6 +254,14 @@ pub fn render_client_configs() -> String {
     out.push_str("\n```\n\n");
 
     out.push_str(
+        "### Cursor\n\nAdd to `~/.cursor/mcp.json` (or a project `.cursor/mcp.json` / \
+         `.mcp.json`):\n\n```json\n{\n  \"mcpServers\": {\n    \"srelens\": {\n      \
+         \"command\": \"srelens\",\n      \"args\": [\"",
+    );
+    out.push_str(FLAG_STDIO);
+    out.push_str("\"]\n    }\n  }\n}\n```\n\n");
+
+    out.push_str(
         "### Generic stdio client\n\nSpawn the binary and speak newline-delimited \
          JSON-RPC on stdin/stdout:\n\n```json\n{\n  \"command\": \"srelens\",\n  \
          \"args\": [\"",
@@ -868,6 +876,8 @@ mod tests {
         // Verify client names are present.
         assert!(md.contains("Claude Desktop"), "Claude Desktop name missing:\n{md}");
         assert!(md.contains("Claude Code"), "Claude Code name missing:\n{md}");
+        assert!(md.contains("### Cursor"), "Cursor section missing:\n{md}");
+        assert!(md.contains(".cursor/mcp.json"), "Cursor config path missing:\n{md}");
     }
 
     /// Every fenced json block in the generated configs must parse — a

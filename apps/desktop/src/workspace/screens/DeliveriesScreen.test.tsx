@@ -24,6 +24,7 @@ beforeEach(() => {
 });
 
 const appFarm = { id: "appfarm", label: "AppFarm", providers: [] };
+const noopExplore = () => {};
 
 describe("DeliveriesScreen", () => {
   it("shows a truthful empty without synthetic overlay", async () => {
@@ -32,6 +33,7 @@ describe("DeliveriesScreen", () => {
         profile={appFarm}
         filter=""
         onFilter={() => {}}
+        onExploreRuntime={noopExplore}
       />,
     );
 
@@ -51,6 +53,7 @@ describe("DeliveriesScreen", () => {
         profile={appFarm}
         filter=""
         onFilter={() => {}}
+        onExploreRuntime={noopExplore}
       />,
     );
 
@@ -71,12 +74,14 @@ describe("DeliveriesScreen", () => {
         profile={appFarm}
         filter=""
         onFilter={() => {}}
+        onExploreRuntime={noopExplore}
       />,
     );
 
     expect(await screen.findByTestId("deliveries-live-source-errors")).toBeDefined();
     expect(screen.queryByTestId("deliveries-live-empty")).toBeNull();
     expect(screen.getByTestId("deliveries-live-error")).toBeDefined();
+    expect(screen.queryByText(/Partial results/)).toBeNull();
   });
 
   it("sends a live filter change to its owner", async () => {
@@ -86,6 +91,7 @@ describe("DeliveriesScreen", () => {
         profile={appFarm}
         filter=""
         onFilter={onFilter}
+        onExploreRuntime={noopExplore}
       />,
     );
 
@@ -113,7 +119,7 @@ describe("DeliveriesScreen", () => {
       sourceErrors: [],
     });
 
-    render(<DeliveriesScreen profile={appFarm} filter="" onFilter={() => {}} />);
+    render(<DeliveriesScreen profile={appFarm} filter="" onFilter={() => {}} onExploreRuntime={noopExplore} />);
     fireEvent.click(await screen.findByRole("button", { name: /Open delivery LIVE-42/ }));
 
     expect(screen.getByTestId("deliveries-master-detail")).toBeDefined();
@@ -146,11 +152,69 @@ describe("DeliveriesScreen", () => {
       sourceErrors: [{ source: "jenkins", message: "credential is not configured" }],
     });
 
-    render(<DeliveriesScreen profile={appFarm} filter="" onFilter={() => {}} />);
+    render(<DeliveriesScreen profile={appFarm} filter="" onFilter={() => {}} onExploreRuntime={noopExplore} />);
     fireEvent.click(await screen.findByRole("button", { name: /Open delivery LIVE-PARTIAL/ }));
 
     expect(await screen.findByText(/Partial delivery/)).toBeDefined();
     expect(screen.getByTestId("source-errors").textContent).toMatch(/credential is not configured/);
     expect(screen.getByTestId("empty-live-trace").textContent).toMatch(/not an empty success/);
+  });
+
+  it("hands a runtime node Explore click to onExploreRuntime", async () => {
+    const onExploreRuntime = vi.fn();
+    devopsListDeliveries.mockResolvedValue({
+      deliveries: [{
+        id: "live-rt",
+        anchor: { kind: "issue", value: "LIVE-RT" },
+        workId: "LIVE-RT",
+        title: "Runtime delivery",
+        stage: "attention",
+        stageLabel: "Needs review",
+        situations: [],
+        partial: false,
+        sourceErrors: [],
+      }],
+      partial: false,
+      sourceErrors: [],
+    });
+    devopsTraceDelivery.mockResolvedValue({
+      nodes: [{
+        id: "wl-1",
+        kind: "workload",
+        source: "kubernetes",
+        title: "payments-api",
+        url: null,
+        attributes: {
+          cluster: "prod-eu",
+          namespace: "payments",
+          name: "payments-api",
+          kind: "Deployment",
+        },
+      }],
+      edges: [],
+      situations: [],
+      partial: false,
+      sourceErrors: [],
+    });
+
+    render(
+      <DeliveriesScreen
+        profile={appFarm}
+        filter=""
+        onFilter={() => {}}
+        onExploreRuntime={onExploreRuntime}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Open delivery LIVE-RT/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Runtime" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Explore in Kubernetes/ }));
+
+    expect(onExploreRuntime).toHaveBeenCalledWith({
+      context: "prod-eu",
+      kind: "deployments",
+      namespace: "payments",
+      name: "payments-api",
+      profileId: "appfarm",
+    });
   });
 });

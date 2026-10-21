@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { listSkills, relativeTime, type SkillMeta } from "@srelens/core";
-import { Alert, RawError, Section, Switch, cx } from "@srelens/ui-kit";
+import { Alert, Button, RawError, Section, Switch, cx } from "@srelens/ui-kit";
 import {
   getActiveRunKey,
   openSavedRun,
@@ -11,6 +11,7 @@ import {
   useRunSummaries,
 } from "../../lib/agentRun";
 import { LOADING, type Read } from "../../lib/read";
+import { SkillsPanel } from "./SkillsPanel";
 
 /** §5's rail width, and this screen's alone — see `SideRail`'s note on why the
  *  width is a number per screen rather than a scale. */
@@ -28,8 +29,9 @@ export const AGENT_RAIL_WIDTH = 312;
  * Rendering a placeholder or a fabricated `0 calls` in their place would tell
  * the reader srelens counted something it never did.
  *
- * **`Skills` draws a name and a description, and a switch for THIS run — no
- * usage count.** §5's `used <n>×` has no counter behind it anywhere in
+ * **`Skills` draws a name and a description, a switch for THIS run, and a
+ * Manage entry into full CRUD** (create / edit / save / delete) via
+ * {@link SkillsPanel}. §5's `used <n>×` has no counter behind it anywhere in
  * srelens (#387). The switch reads and writes `lib/agentRun.ts`'s
  * `activeSkills` through `setSkillActive` — the SAME set the composer's own
  * `/` menu writes to — so flipping a skill on here and picking the same
@@ -70,6 +72,9 @@ export function RunsRail() {
   // statements standing in for a failure this rail never told the reader
   // about (I6).
   const [skills, setSkills] = useState<Read<SkillMeta[]>>(LOADING);
+  /** CRUD dialog — list/edit/save/delete; the switches below stay the
+   *  activate-for-this-run control. */
+  const [manageOpen, setManageOpen] = useState(false);
   // NOTE: the agent picker was briefly here, then moved into the composer's
   // own footer beside `+`. Choosing the agent is part of asking, and the
   // composer is on every screen while this rail is on one.
@@ -95,11 +100,15 @@ export function RunsRail() {
   // which skills are active for this run.
   const { activeSkills } = useAgentRun();
 
-  useEffect(() => {
+  const refreshSkills = useCallback(() => {
     listSkills()
       .then((v) => setSkills({ kind: "ready", value: v }))
       .catch((e) => setSkills({ kind: "error", error: e }));
   }, []);
+
+  useEffect(() => {
+    refreshSkills();
+  }, [refreshSkills]);
 
   const now = Date.now();
 
@@ -191,12 +200,17 @@ export function RunsRail() {
         )}
       </Section>
       <Section title="Skills" smallCaps padded={false}>
+        <div className="border-b border-rule px-3 py-1.5">
+          <Button variant="ghost" size="sm" onClick={() => setManageOpen(true)}>
+            Manage skills
+          </Button>
+        </div>
         {skills.kind === "loading" ? null : skills.kind === "error" ? (
           <Alert tone="sev" className="mx-3" title="Saved skills could not be checked">
             <RawError text={String(skills.error)} />
           </Alert>
         ) : skills.value.length === 0 ? (
-          <p className="min-w-0 break-words px-3 text-xs text-muted">No skills saved yet.</p>
+          <p className="min-w-0 break-words px-3 py-2 text-xs text-muted">No skills saved yet.</p>
         ) : (
           <div className="flex min-w-0 flex-col">
             {skills.value.map((s) => (
@@ -228,6 +242,12 @@ export function RunsRail() {
           connected right now (#369).
         </p>
       </Section>
+      {manageOpen && (
+        <SkillsPanel
+          onClose={() => setManageOpen(false)}
+          onChanged={refreshSkills}
+        />
+      )}
     </>
   );
 }

@@ -44,7 +44,7 @@ describe("FirstRunScreen", () => {
     render(<FirstRunScreen onContinue={vi.fn()} />);
 
     expect(screen.getByText(/Configure only the providers you use/i)).toBeDefined();
-    expect(screen.getByText(/encrypted vault/i)).toBeDefined();
+    expect(screen.getByText(/credentials stay encrypted on this device/i)).toBeDefined();
   });
 
   it("Continue selects AppFarm by default and calls onContinue with that contour", async () => {

@@ -50,7 +50,7 @@ export function ConnectionsScreen() {
         <h1 className="mt-1 text-xl font-semibold">Contours</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Public endpoints are shown here. Each provider is optional: connect only what this contour uses.
-          Credentials are stored in the encrypted vault through Settings.
+          Credentials are stored encrypted through Settings.
         </p>
       </header>
       <ul className="divide-y divide-border">

@@ -11,7 +11,7 @@ Follow the [developer guide](docs/DEVELOPMENT.md) — it covers prerequisites, r
 ## Ground rules
 
 1. **Test-driven development is mandatory.** Every change starts with a failing test. No implementation lands without one.
-2. **Coverage floors are hard CI gates** — 85% lines for TypeScript; Rust is currently 55% and ratchets toward 85% as cluster-bound integration tests land (never lower it).
+2. **Coverage floors are hard CI gates** — 85% lines for TypeScript; Rust is 85% lines in CI. Never lower either floor.
 3. **Every backend operation must be a capability.** Register it once in `capabilities.rs`; the MCP surface is generated and verified automatically.
 4. **Destructive operations must be annotated** (`destructive`, `requires_confirm`) so both UI confirmations and MCP tool hints stay correct.
 

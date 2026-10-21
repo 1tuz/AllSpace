@@ -381,6 +381,7 @@ describe("Workloads", () => {
 
     expect(await screen.findByText("Follow logs")).toBeTruthy();
     expect(screen.getByText("Open shell")).toBeTruthy();
+    expect(screen.getByText("Debug")).toBeTruthy();
     expect(screen.getByText("Port forward")).toBeTruthy();
     expect(screen.getByText("Evict")).toBeTruthy();
 
@@ -400,6 +401,7 @@ describe("Workloads", () => {
 
     expect(screen.queryByText("Follow logs")).toBeNull();
     expect(screen.queryByText("Open shell")).toBeNull();
+    expect(screen.queryByText("Debug")).toBeNull();
     expect(screen.queryByText("Port forward")).toBeNull();
     expect(screen.queryByText("Evict")).toBeNull();
     expect(screen.queryByText("Scale")).toBeNull();

@@ -1,9 +1,8 @@
 /** Active DevOps contour/profile for Workspace chrome isolation. */
 
 import { devopsProfilesList, devopsProfileSelect, devopsProfileUpsert, type DevOpsProfile } from "@srelens/core";
-import type { Delivery } from "./deliveryTypes";
 
-export type ContourName = "AppFarm" | "Komus" | "Custom";
+type ContourName = "AppFarm" | "Komus" | "Custom";
 
 const FALLBACK_PROFILES: DevOpsProfile[] = [
   { id: "appfarm", label: "AppFarm", providers: [] },
@@ -12,24 +11,14 @@ const FALLBACK_PROFILES: DevOpsProfile[] = [
 
 const ACTIVE_KEY = "srelens.workspace.activeProfileId";
 
-export function contourForProfile(profile: Pick<DevOpsProfile, "id" | "label">): ContourName {
+function contourForProfile(profile: Pick<DevOpsProfile, "id" | "label">): ContourName {
   const blob = `${profile.id} ${profile.label}`.toLowerCase();
   if (blob.includes("komus")) return "Komus";
   if (blob.includes("appfarm") || blob.includes("app-farm")) return "AppFarm";
   return "Custom";
 }
 
-export function filterDeliveriesByProfile(
-  deliveries: Delivery[],
-  profile: Pick<DevOpsProfile, "id" | "label"> | null,
-): Delivery[] {
-  if (!profile) return deliveries;
-  const contour = contourForProfile(profile);
-  if (contour === "Custom") return deliveries;
-  return deliveries.filter((d) => d.contour === contour);
-}
-
-export function loadStoredActiveProfileId(): string | null {
+function loadStoredActiveProfileId(): string | null {
   try {
     return localStorage.getItem(ACTIVE_KEY);
   } catch {
@@ -37,7 +26,7 @@ export function loadStoredActiveProfileId(): string | null {
   }
 }
 
-export function storeActiveProfileId(id: string): void {
+function storeActiveProfileId(id: string): void {
   try {
     localStorage.setItem(ACTIVE_KEY, id);
   } catch {
@@ -74,7 +63,7 @@ export async function loadWorkspaceProfiles(): Promise<{
 }
 
 /** Ensure both product contours exist in the switcher list. */
-export function mergeContourProfiles(stored: DevOpsProfile[]): DevOpsProfile[] {
+function mergeContourProfiles(stored: DevOpsProfile[]): DevOpsProfile[] {
   const out = [...stored];
   for (const fallback of FALLBACK_PROFILES) {
     const want = contourForProfile(fallback);

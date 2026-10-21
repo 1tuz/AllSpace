@@ -70,6 +70,7 @@ import {
 } from "../lib/overview";
 import { useInfo } from "../lib/probe";
 import { describe } from "../lib/routes";
+import { offerNodeShell } from "../lib/resourceHandoff";
 import { openTab } from "../lib/tabsStore";
 import { LINK_WORD, useWorkspaceView } from "../lib/workspace";
 import { NoClusterScreen } from "./resourceShell";
@@ -129,11 +130,12 @@ function shorten(text: string, max = EYEBROW_MAX): string {
   return `${text.slice(0, head)}…${text.slice(text.length - (max - 1 - head))}`;
 }
 
-/** This screen's own words for the two node actions. Nothing else renders them. */
+/** This screen's own words for the node actions. Nothing else renders them. */
 const NODE_ACTION_LABEL = {
   cordon: "Cordon",
   uncordon: "Uncordon",
   drain: "Drain",
+  shell: "Node shell",
 } as const;
 
 /** One node, flattened so the table can key, sort and filter on its fields. */
@@ -1029,9 +1031,9 @@ function nodeColumns(context: string, open: (pending: Pending) => void): Column<
  *
  * A cordoned node is offered the other direction rather than the same action
  * again — the state is on the row, so the button can say what it will do.
- * `Node shell` is in the design's overflow and is not here: it needs the
- * ephemeral debug-pod flow, which this screen has no path to, and an action
- * that cannot work is worse than one that is absent.
+ * `Node shell` sits in the overflow: it offers through `resourceHandoff` and
+ * opens Terminals on `NewSessionMenu`'s node flow (create debug pod + nsenter),
+ * rather than starting the session here — same door as the palette's pod shell.
  */
 function nodeActions(context: string, row: NodeRow, open: (pending: Pending) => void): ActionBarAction[] {
   const kubectlBase = { kind: "Node", name: row.name, namespace: null, context } as const;
@@ -1061,6 +1063,15 @@ function nodeActions(context: string, row: NodeRow, open: (pending: Pending) => 
       // Danger-toned because it is: every pod on the node is evicted.
       danger: true,
       onSelect: () => open({ type: "drain", name: row.name, context }),
+    },
+    {
+      id: "shell",
+      label: NODE_ACTION_LABEL.shell,
+      icon: Icons.terminal,
+      onSelect: () => {
+        offerNodeShell({ context, node: row.name });
+        openTab("/terminals", { clusterName: context });
+      },
     },
     {
       id: "open",

@@ -26,6 +26,7 @@ export const SECONDARY_NAV: NavItem[] = [
 ];
 
 export const FIRST_RUN_KEY = "srelens.workspace.firstRunDone";
+export const RAIL_COLLAPSED_KEY = "srelens.workspace.railCollapsed";
 
 export function loadFirstRunDone(): boolean {
   try {
@@ -40,5 +41,21 @@ export function saveFirstRunDone(): void {
     localStorage.setItem(FIRST_RUN_KEY, "1");
   } catch {
     /* storage blocked — stay on first-run until it works */
+  }
+}
+
+export function loadRailCollapsed(): boolean {
+  try {
+    return localStorage.getItem(RAIL_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveRailCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(RAIL_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    /* ignore */
   }
 }

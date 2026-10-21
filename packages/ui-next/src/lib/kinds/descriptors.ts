@@ -124,15 +124,16 @@ const TYPED: Partial<Record<ResourceKind, KindDescriptor<ListRow>>> = {
     // above this table): `Partial<PodRow>` only widens `Partial<ListRow>`.
     enrich: podEnrich as (context: string, namespace: string) => Promise<Map<RowKey, Partial<ListRow>>>,
     enrichMs: 10000,
-    actions: { logs: true, shell: true, forward: true, evict: true },
+    actions: { logs: true, shell: true, debug: true, forward: true, evict: true },
     // Same variance cast every function on this table already needs: `flagged`
     // only reads `phase`, a field `ListRow` does not promise.
     flagged: podFlagged as (row: ListRow) => boolean,
     // Task 10 ported `PodContainersBody` off classic's `ContainerCard` — the
     // detail shell only offers the Containers tab where this is set. The
     // pane's ports are also the way into a port forward, which is why `Pod`
-    // sets both this and `actions.forward`.
-    panes: { containers: true },
+    // sets both this and `actions.forward`. Metrics is classic `MetricsPanel`
+    // for the same kinds (Pod/Node/workloads).
+    panes: { containers: true, metrics: true },
   },
   deployments: {
     k8sKind: "Deployment",
@@ -141,6 +142,7 @@ const TYPED: Partial<Record<ResourceKind, KindDescriptor<ListRow>>> = {
     scope: "namespaced",
     actions: { logs: true, scale: true, restart: true },
     flagged: deploymentFlagged as (row: ListRow) => boolean,
+    panes: { metrics: true },
   },
   statefulsets: {
     k8sKind: "StatefulSet",
@@ -149,6 +151,7 @@ const TYPED: Partial<Record<ResourceKind, KindDescriptor<ListRow>>> = {
     scope: "namespaced",
     actions: { logs: true, scale: true, restart: true },
     flagged: statefulSetFlagged as (row: ListRow) => boolean,
+    panes: { metrics: true },
   },
   daemonsets: {
     k8sKind: "DaemonSet",
@@ -157,6 +160,7 @@ const TYPED: Partial<Record<ResourceKind, KindDescriptor<ListRow>>> = {
     scope: "namespaced",
     actions: { logs: true, restart: true },
     flagged: daemonSetFlagged as (row: ListRow) => boolean,
+    panes: { metrics: true },
   },
   jobs: {
     k8sKind: "Job",
@@ -167,6 +171,7 @@ const TYPED: Partial<Record<ResourceKind, KindDescriptor<ListRow>>> = {
     // Same variance cast every function on this table already needs: `flagged`
     // only reads `failed`, a field `ListRow` does not promise.
     flagged: jobFlagged as (row: ListRow) => boolean,
+    panes: { metrics: true },
   },
   cronjobs: {
     k8sKind: "CronJob",
@@ -189,6 +194,7 @@ const TYPED: Partial<Record<ResourceKind, KindDescriptor<ListRow>>> = {
     // promise. Present so a NotReady or cordoned node's row asks the same
     // question its detail pane asks — both read core's `nodeStatus`.
     flagged: nodeFlagged as (row: ListRow) => boolean,
+    panes: { metrics: true },
   },
   namespaces: {
     k8sKind: "Namespace",
@@ -329,7 +335,7 @@ export function descriptorFor(slug: string): KindDescriptor<ListRow> | undefined
   const typed = Object.prototype.hasOwnProperty.call(TYPED, slug) ? TYPED[slug] : undefined;
   if (typed) return typed;
   const cluster = isClusterScoped(slug);
-  return {
+  const desc: KindDescriptor<ListRow> = {
     k8sKind: K8S_KIND[slug],
     // `genericColumns` is typed over core's `ResourceRow` (name, namespace,
     // age), which is a proper subtype of `ListRow` — so the reverse cast here
@@ -344,4 +350,8 @@ export function descriptorFor(slug: string): KindDescriptor<ListRow> | undefined
       listResource(context, K8S_KIND[slug], namespace).then((o) => ({ rows: o.items, error: o.error })),
     actions: {},
   };
+  // Classic MetricsPanel covers ReplicaSets; they stay on generic columns and
+  // only opt into the metrics pane here.
+  if (slug === "replicasets") return { ...desc, panes: { metrics: true } };
+  return desc;
 }

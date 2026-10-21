@@ -104,6 +104,36 @@ beforeEach(() => {
   });
 });
 
+const FORBIDDEN_PRIMARY = /Secondary mode|oidc-login|\$KUBECONFIG|exec plugin|OS keychain/i;
+
+describe("KubernetesExplorerScreen vitrina copy", () => {
+  it("shows task-oriented guidance without developer jargon in the primary blurb", async () => {
+    render(<KubernetesExplorerScreen focus={null} />);
+    const blurb = await screen.findByTestId("explorer-guidance");
+    expect(blurb.textContent).toMatch(/Pick a cluster/i);
+    expect(blurb.textContent).toMatch(/contour/i);
+    expect(blurb.textContent).not.toMatch(FORBIDDEN_PRIMARY);
+    expect(blurb.textContent).not.toMatch(/empty result, not a failed call/i);
+  });
+
+  it("keeps operational cluster-access detail behind a disclosure", async () => {
+    render(<KubernetesExplorerScreen focus={null} />);
+    const help = await screen.findByTestId("explorer-access-help");
+    expect(help.tagName.toLowerCase()).toBe("details");
+    expect(help.textContent).toMatch(/\$KUBECONFIG|oidc-login/i);
+  });
+
+  it("describes an empty context list as no clusters, not a failed-call lecture", async () => {
+    listContexts.mockResolvedValue({ contexts: [], error: undefined });
+    render(<KubernetesExplorerScreen focus={null} />);
+    expect(await screen.findByTestId("explorer-empty-contexts")).toBeDefined();
+    expect(screen.getByTestId("explorer-empty-contexts").textContent).toMatch(/No clusters/i);
+    expect(screen.getByTestId("explorer-empty-contexts").textContent).not.toMatch(
+      /empty result, not a failed call/i,
+    );
+  });
+});
+
 describe("KubernetesExplorerScreen contour kubeconfig", () => {
   it("lists contexts from the Komus contour only (replaceDefaults)", async () => {
     render(

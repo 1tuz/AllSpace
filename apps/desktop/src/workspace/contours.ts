@@ -19,7 +19,7 @@ export interface ContourPreset {
   summary: string;
   /**
    * Absolute sibling `.env` path for developers / docs.
-   * Never render in ordinary product UI — use {@link contourEnvKeyLabels}.
+   * Never render in ordinary product UI — use `providers[].envKeys` for copy.
    */
   credentialEnvFile: string;
   /** Absolute kubeconfig directory — developer-facing; hide from ordinary product UI. */
@@ -28,11 +28,6 @@ export interface ContourPreset {
   providers: ContourProviderPreset[];
   /** Explicit TLS posture for private-CA corporate endpoints. */
   tls?: { allowInsecure?: boolean; caBundlePath?: string };
-}
-
-/** Env key names for product copy — never the absolute credentialEnvFile path. */
-export function contourEnvKeyLabels(contour: ContourPreset): string[] {
-  return [...new Set(contour.providers.flatMap((p) => p.envKeys))];
 }
 
 export const CONTOUR_PRESETS: ContourPreset[] = [

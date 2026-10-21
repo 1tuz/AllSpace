@@ -1,9 +1,11 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   RUNTIME_HANDOFF_KEY,
+  explorePaletteLabel,
   resolveRuntimeScope,
   runtimeHandoffFromAttrs,
   runtimeHandoffKey,
+  runtimeHandoffsFromNodes,
   runtimeScopeFromHandoff,
   saveRuntimeHandoff,
   takeRuntimeHandoff,
@@ -14,6 +16,14 @@ beforeEach(() => {
 });
 
 describe("runtimeHandoff", () => {
+  it("ignores non-string trace attributes", () => {
+    expect(runtimeHandoffFromAttrs({ cluster: 42, name: "web" })).toBeNull();
+    expect(resolveRuntimeScope(undefined, [
+      { attributes: { cluster: 42 } },
+      { attributes: { cluster: " dev ", namespace: 42 } },
+    ])).toEqual({ kubeContext: "dev" });
+  });
+
   it("maps deployment attributes to a classic focus target", () => {
     expect(
       runtimeHandoffFromAttrs({
@@ -128,5 +138,73 @@ describe("runtimeHandoff", () => {
       namespaces: ["payments"],
     });
     expect(runtimeHandoffKey(handoff)).toContain("payments-api-1");
+  });
+
+  it("collects unique Explore handoffs from delivery nodes", () => {
+    expect(
+      runtimeHandoffsFromNodes(
+        [
+          { attributes: { environment: "prod" } },
+          {
+            attributes: {
+              cluster: "prod-eu",
+              namespace: "payments",
+              kind: "Deployment",
+              name: "payments-api",
+            },
+          },
+          {
+            attributes: {
+              cluster: "prod-eu",
+              namespace: "payments",
+              kind: "Deployment",
+              name: "payments-api",
+            },
+          },
+          {
+            attributes: {
+              cluster: "staging",
+              namespace: "checkout",
+              name: "checkout-api",
+            },
+          },
+        ],
+        "appfarm",
+      ),
+    ).toEqual([
+      {
+        context: "prod-eu",
+        kind: "deployments",
+        namespace: "payments",
+        name: "payments-api",
+        profileId: "appfarm",
+      },
+      {
+        context: "staging",
+        kind: "deployments",
+        namespace: "checkout",
+        name: "checkout-api",
+        profileId: "appfarm",
+      },
+    ]);
+  });
+
+  it("labels Explore actions for the palette", () => {
+    expect(
+      explorePaletteLabel({
+        context: "prod-eu",
+        kind: "deployments",
+        namespace: "payments",
+        name: "payments-api",
+      }),
+    ).toBe("Explore deployments payments/payments-api");
+    expect(
+      explorePaletteLabel({
+        context: "prod-eu",
+        kind: "pods",
+        namespace: "",
+        name: "payments-api-1",
+      }),
+    ).toBe("Explore pods payments-api-1");
   });
 });

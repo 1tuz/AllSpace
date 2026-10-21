@@ -16,6 +16,7 @@ import {
 } from "@srelens/core";
 import { Button, EmptyState, KV, Spinner, StatusPill, Table, type Column } from "@srelens/ui-kit";
 import { FailureAlert } from "../../lib/errorCopy";
+import { ConfigDataEditor } from "./ConfigDataEditor";
 import { Section } from "./Section";
 import { StringList } from "./sections";
 
@@ -146,10 +147,9 @@ function SecretEntry({ name, value, state }: { name: string; value: string; stat
 }
 
 /**
- * A Secret's `data` keys, each behind its own reveal toggle — classic's
- * `SecretData`, shared by all three Secret bodies below (TLS and Docker
- * secrets show it after their own summary section; a general Secret shows it
- * as its only section besides "Secret summary").
+ * A Secret's `data` keys, each behind its own reveal toggle — used by TLS and
+ * Docker bodies (reveal-only, matching classic's `SecretData`). General
+ * (Opaque) Secrets use {@link ConfigDataEditor} instead, which adds edit/save.
  *
  * The key names and the count are `getObject`'s, and they survive a `getSecret`
  * refusal intact — so this section is drawn in full either way, and only the
@@ -373,15 +373,19 @@ function useSecretData(
 /**
  * A Secret's Details pane — classic's `SecretBody`: dispatches on `type` to
  * TLS material, Docker registries, or a general summary, then always shows
- * the Data section beneath. Editing (`ConfigDataEditor`'s Save/Copy) is not
- * wired here — ui-next's Details panes are read-only, the same call every
- * other body in this table has made for its own write affordance.
+ * the Data section beneath.
+ *
+ * Inline edit/save (`ConfigDataEditor`) is wired for general (Opaque) Secrets
+ * only, matching classic: TLS and Docker keep a reveal-only Data section.
+ * Editing requires values from the consent-gated `getSecret` (`valuesAvailable`);
+ * immutable Secrets withhold `context` so the editor stays read-only.
  */
 export function SecretDetailsBody({ object, context }: { object: K8sObject; context: string }) {
   const meta = object.metadata ?? {};
   const type = str(object.type) || "Opaque";
   const redacted = (object.data ?? {}) as Record<string, string>;
   const state = useSecretData(context, str(meta.namespace), str(meta.name), redacted);
+  const immutable = object.immutable === true;
   // An ALERT and not an error state: the object loaded, so the type, the key
   // names and the count below are real and must stay on screen. What failed is
   // one sub-read, and replacing the pane with a card would throw away the facts
@@ -409,13 +413,25 @@ export function SecretDetailsBody({ object, context }: { object: K8sObject; cont
       </>
     );
   }
+  const keys = Object.keys(state.data);
   return (
     <>
       {refusal}
       {/* `getObject` blanks the VALUES and keeps the KEYS, so the count is a
           fact on every path — including a refused one. */}
-      <GeneralSection object={object} keyCount={Object.keys(state.data).length} />
-      <SecretDataSection state={state} />
+      <GeneralSection object={object} keyCount={keys.length} />
+      <Section id="Data" title={`Data (${plural(keys.length, "key")})`}>
+        <ConfigDataEditor
+          context={immutable ? "" : context}
+          kind="Secret"
+          namespace={str(meta.namespace)}
+          name={str(meta.name)}
+          data={state.data}
+          secret
+          valuesAvailable={hasValues(state)}
+          withheldReason={hasValues(state) ? undefined : withheldReason(state)}
+        />
+      </Section>
     </>
   );
 }

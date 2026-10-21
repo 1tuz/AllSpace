@@ -56,7 +56,7 @@ mod tests {
         assert_eq!(normalize_issue(&issue).id, "jira:issue:OPS-142");
         assert_eq!(
             normalize_issue(&issue).attributes,
-            json!({ "projectKey": "OPS", "status": "In Progress" })
+            json!({ "key": "OPS-142", "projectKey": "OPS", "status": "In Progress" })
         );
     }
 
@@ -177,6 +177,101 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["OPS-142"]
         );
+    }
+
+    #[test]
+    fn search_issue_keys_skips_empty_or_slash_keys_instead_of_failing_the_batch() {
+        struct PanicIfCalled;
+
+        impl JiraTransport for PanicIfCalled {
+            fn send(&self, _request: JiraRequest) -> Result<JiraResponse, JiraError> {
+                panic!("malformed-only batches must not hit the transport");
+            }
+        }
+
+        let client =
+            JiraClient::new("https://jira.example.test", "u", "p", PanicIfCalled).unwrap();
+        assert_eq!(client.search_issue_keys(&["", "group/project"]).unwrap(), vec![]);
+    }
+
+    #[test]
+    fn search_recent_issues_uses_bounded_updated_jql() {
+        struct RecentTransport;
+
+        impl JiraTransport for RecentTransport {
+            fn send(&self, request: JiraRequest) -> Result<JiraResponse, JiraError> {
+                if request.url.ends_with("/rest/auth/1/session") {
+                    return Ok(JiraResponse::json(
+                        201,
+                        json!({ "session": { "name": "JSESSIONID", "value": "session-cookie" } }),
+                    ));
+                }
+                assert_eq!(
+                    request.url,
+                    "https://jira.example.test/rest/api/2/search?jql=updated%20%3E%3D%20-30d%20ORDER%20BY%20updated%20DESC&maxResults=5&fields=summary,status,project,assignee"
+                );
+                Ok(JiraResponse::json(
+                    200,
+                    json!({ "issues": [{
+                        "key": "OPS-200",
+                        "fields": {
+                            "summary": "Recent work",
+                            "status": { "name": "Open" },
+                            "project": { "key": "OPS" }
+                        }
+                    }] }),
+                ))
+            }
+        }
+
+        let client = JiraClient::new(
+            "https://jira.example.test",
+            "operator",
+            "fixture-password",
+            RecentTransport,
+        )
+        .unwrap();
+        let issues = client.search_recent_issues(5).unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].key, "OPS-200");
+        assert_eq!(normalize_issue(&issues[0]).attributes["key"], "OPS-200");
+    }
+
+    #[test]
+    fn list_remote_links_keeps_titled_urls_only() {
+        struct RemoteTransport;
+
+        impl JiraTransport for RemoteTransport {
+            fn send(&self, request: JiraRequest) -> Result<JiraResponse, JiraError> {
+                if request.url.ends_with("/rest/auth/1/session") {
+                    return Ok(JiraResponse::json(
+                        201,
+                        json!({ "session": { "name": "JSESSIONID", "value": "c" } }),
+                    ));
+                }
+                assert!(request.url.ends_with("/rest/api/2/issue/OPS-142/remotelink"));
+                Ok(JiraResponse::json(
+                    200,
+                    json!([
+                        { "object": { "title": "Runbook", "url": "https://confluence.example/x" } },
+                        { "object": { "title": "", "url": "" } },
+                        { "object": { "url": "https://wiki.example/y" } }
+                    ]),
+                ))
+            }
+        }
+
+        let client = JiraClient::new(
+            "https://jira.example.test",
+            "operator",
+            "fixture-password",
+            RemoteTransport,
+        )
+        .unwrap();
+        let links = client.list_remote_links("OPS-142").unwrap();
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].title, "Runbook");
+        assert_eq!(links[1].title, "https://wiki.example/y");
     }
 }
 use schemars::JsonSchema;
@@ -380,6 +475,7 @@ pub fn normalize_issue(issue: &JiraIssue) -> Entity {
 
 fn normalize_issue_with_url(issue: &JiraIssue, browse_url: Option<String>) -> Entity {
     let mut attributes = json!({
+        "key": issue.key,
         "projectKey": issue.fields.project.key,
         "status": issue.fields.status.name,
     });
@@ -500,6 +596,36 @@ pub fn issue_detail_from(issue: &JiraIssue, base_url: &str) -> IssueDetail {
     }
 }
 
+/// Attach remote-link URLs onto the issue entity for Knowledge (linked docs only).
+pub fn attach_remote_links(mut detail: IssueDetail, links: &[JiraRemoteLink]) -> IssueDetail {
+    if links.is_empty() {
+        return detail;
+    }
+    detail.issue.attributes["remoteLinks"] = json!(links);
+    detail
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraRemoteLink {
+    pub title: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct JiraRawRemoteLink {
+    #[serde(default)]
+    object: JiraRemoteLinkObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+struct JiraRemoteLinkObject {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+}
+
 pub struct JiraClient<T> {
     base_url: String,
     username: String,
@@ -565,8 +691,13 @@ impl<T: JiraTransport> JiraClient<T> {
     }
 
     pub fn search_issue_keys(&self, keys: &[&str]) -> Result<Vec<JiraIssue>, JiraError> {
-        if keys.is_empty() || keys.iter().any(|key| key.is_empty() || key.contains('/')) {
-            return Err(JiraError::InvalidIssueKey);
+        let keys: Vec<&str> = keys
+            .iter()
+            .copied()
+            .filter(|key| !key.is_empty() && !key.contains('/'))
+            .collect();
+        if keys.is_empty() {
+            return Ok(vec![]);
         }
         let jql = format!("key in ({})", keys.join(", "))
             .replace(' ', "%20")
@@ -585,6 +716,60 @@ impl<T: JiraTransport> JiraClient<T> {
         }
         serde_json::from_value(search.body["issues"].clone())
             .map_err(|e| JiraError::InvalidResponse(e.to_string()))
+    }
+
+    /// Bounded recent-issue list for Delivery seeding when no change-derived
+    /// keys exist. JQL stays fixed — callers pass only a hard cap.
+    pub fn search_recent_issues(&self, max: usize) -> Result<Vec<JiraIssue>, JiraError> {
+        let max = max.clamp(1, 50);
+        let jql = "updated%20%3E%3D%20-30d%20ORDER%20BY%20updated%20DESC";
+        let search = self.transport.send(JiraRequest {
+            method: "GET".into(),
+            url: format!(
+                "{}/rest/api/2/search?jql={jql}&maxResults={max}&fields=summary,status,project,assignee",
+                self.base_url
+            ),
+            headers: BTreeMap::from([("Cookie".into(), self.session_cookie()?)]),
+            body: None,
+        })?;
+        if !(200..300).contains(&search.status) {
+            return Err(JiraError::UnexpectedStatus(search.status));
+        }
+        serde_json::from_value(search.body["issues"].clone())
+            .map_err(|e| JiraError::InvalidResponse(e.to_string()))
+    }
+
+    /// Remote / application links on an issue (Confluence pages, etc.). Failures
+    /// stay failures for the caller — empty means Jira returned none.
+    pub fn list_remote_links(&self, key: &str) -> Result<Vec<JiraRemoteLink>, JiraError> {
+        if key.is_empty() || key.contains('/') {
+            return Err(JiraError::InvalidIssueKey);
+        }
+        let cookie = self.session_cookie()?;
+        let response = self.transport.send(JiraRequest {
+            method: "GET".into(),
+            url: format!("{}/rest/api/2/issue/{key}/remotelink", self.base_url),
+            headers: BTreeMap::from([("Cookie".into(), cookie)]),
+            body: None,
+        })?;
+        if !(200..300).contains(&response.status) {
+            return Err(JiraError::UnexpectedStatus(response.status));
+        }
+        let raw: Vec<JiraRawRemoteLink> = serde_json::from_value(response.body)
+            .map_err(|e| JiraError::InvalidResponse(e.to_string()))?;
+        Ok(raw
+            .into_iter()
+            .filter_map(|link| {
+                let url = link.object.url.filter(|u| !u.is_empty())?;
+                let title = link
+                    .object
+                    .title
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or_else(|| url.clone());
+                Some(JiraRemoteLink { title, url })
+            })
+            .take(MAX_ISSUE_LINKS)
+            .collect())
     }
 
     fn session_cookie(&self) -> Result<String, JiraError> {
@@ -629,7 +814,13 @@ impl std::fmt::Display for JiraError {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SearchIssuesIn {
+    /// Explicit issue keys to resolve. Empty + [`Self::limit`] seeds recent issues.
+    #[serde(default)]
     pub issue_keys: Vec<String>,
+    /// When `issueKeys` is empty, fetch up to this many recently updated issues
+    /// for Delivery list seeding. Omitted / keys present → no recent fan-out.
+    #[serde(default)]
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -652,7 +843,8 @@ pub struct GetIssueOut {
     pub activity: Vec<JiraIssueActivity>,
 }
 
-/// `jira.searchIssues` — read the active profile's Jira Data Center issues by key.
+/// `jira.searchIssues` — read issues by key, or (empty keys + `limit`) recent
+/// updated issues for Delivery list seeding through the active DevOps profile.
 ///
 /// Public configuration is read fresh from durable settings and the credential
 /// from the store, so switching profile can never reuse another contour's
@@ -665,7 +857,7 @@ pub fn search_issues_capability(
 ) -> Capability {
     Capability::typed::<SearchIssuesIn, SearchIssuesOut, _, _>(
         "jira.searchIssues",
-        "search Jira Data Center issues by key through the active DevOps profile",
+        "search Jira Data Center issues by key (or recent updates when limit is set) through the active DevOps profile",
         Annotations::READ_ONLY,
         move |input| {
             let store = store.clone();
@@ -676,6 +868,7 @@ pub fn search_issues_capability(
                     .await
                     .map_err(|error| CapabilityError::Handler(error.to_string()))?;
                 let keys = input.issue_keys.clone();
+                let recent_limit = input.limit;
                 let tls = connection.tls.clone();
 
                 // The client is blocking; the request itself runs off the async
@@ -689,10 +882,18 @@ pub fn search_issues_capability(
                         transport,
                     )
                     .map_err(|error| error.to_string())?;
-                    let keys = keys.iter().map(String::as_str).collect::<Vec<_>>();
-                    client
-                        .search_issue_keys(&keys)
-                        .map_err(|error| error.to_string())
+                    if !keys.is_empty() {
+                        let keys = keys.iter().map(String::as_str).collect::<Vec<_>>();
+                        return client
+                            .search_issue_keys(&keys)
+                            .map_err(|error| error.to_string());
+                    }
+                    if let Some(limit) = recent_limit {
+                        return client
+                            .search_recent_issues(limit as usize)
+                            .map_err(|error| error.to_string());
+                    }
+                    Ok(vec![])
                 })
                 .await
                 .map_err(|error| {
@@ -744,6 +945,14 @@ pub fn get_issue_capability(
                     client
                         .get_issue_detail(&key)
                         .map_err(|error| error.to_string())
+                        .and_then(|detail| {
+                            // Remote links are best-effort Knowledge attrs — a
+                            // remotes failure must not hide the issue itself.
+                            match client.list_remote_links(&key) {
+                                Ok(links) => Ok(attach_remote_links(detail, &links)),
+                                Err(_) => Ok(detail),
+                            }
+                        })
                 })
                 .await
                 .map_err(|error| {
@@ -792,6 +1001,17 @@ mod capability_tests {
             }
             if self.status != 200 {
                 return Ok(JiraResponse::json(self.status, json!({})));
+            }
+            if request.url.contains("/remotelink") {
+                return Ok(JiraResponse::json(
+                    200,
+                    json!([{
+                        "object": {
+                            "title": "Ops runbook",
+                            "url": "https://confluence.example/pages/ops-runbook"
+                        }
+                    }]),
+                ));
             }
             if request.url.contains("/rest/api/2/issue/") {
                 return Ok(JiraResponse::json(
@@ -983,6 +1203,11 @@ mod capability_tests {
 
         assert_eq!(out["issue"]["id"], "jira:issue:OPS-142");
         assert_eq!(out["issue"]["attributes"]["assignee"], "Ada Operator");
+        assert_eq!(out["issue"]["attributes"]["key"], "OPS-142");
+        assert_eq!(
+            out["issue"]["attributes"]["remoteLinks"][0]["url"],
+            "https://confluence.example/pages/ops-runbook"
+        );
         assert_eq!(out["links"][0]["issueKey"], "OPS-140");
         assert_eq!(out["links"][0]["relation"], "blocks");
         assert_eq!(out["activity"][0]["kind"], "comment");

@@ -1,24 +1,36 @@
 import { useMemo, useState } from "react";
-import type { DevOpsProfile } from "@srelens/core";
+import type { DevOpsProfile, DevOpsRuntimeScope } from "@srelens/core";
 import { TextInput } from "../../ui";
 import { DeliveryRow } from "../delivery/DeliveryRow";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useLiveDeliveryList } from "../hooks/useLiveDeliveryList";
 import { sourceLabel } from "../delivery/DeliveryStageRail";
 import type { DeliveryListItem } from "../delivery/summaryToDelivery";
+import type { RuntimeHandoff } from "../runtimeHandoff";
 import { DeliveryTraceScreen } from "./DeliveryTraceScreen";
 
 export function DeliveriesScreen({
   profile,
   filter,
   onFilter,
+  runtimeScope,
+  selected = null,
+  onSelect,
+  onExploreRuntime,
 }: {
   profile: DevOpsProfile | null;
   filter: string;
   onFilter: (value: string) => void;
+  runtimeScope?: DevOpsRuntimeScope | null;
+  /** Lifted so the shell top bar can show work id/title + back. */
+  selected?: DeliveryListItem | null;
+  onSelect?: (item: DeliveryListItem | null) => void;
+  onExploreRuntime: (target?: RuntimeHandoff) => void;
 }) {
   const live = useLiveDeliveryList("list", profile);
-  const [selected, setSelected] = useState<DeliveryListItem | null>(null);
+  const [localSelected, setLocalSelected] = useState<DeliveryListItem | null>(null);
+  const selectedItem = onSelect ? selected : localSelected;
+  const setSelected = onSelect ?? setLocalSelected;
 
   const rows = useMemo(() => {
     const scoped: DeliveryListItem[] = live.rows;
@@ -35,7 +47,7 @@ export function DeliveriesScreen({
 
   const loading = live.loading;
   const hasSourceProblems = !!live.error || live.sourceErrors.length > 0;
-  const callFailed = hasSourceProblems && rows.length === 0;
+  const callFailed = hasSourceProblems && live.rows.length === 0;
   const liveEmpty =
     !loading &&
     !hasSourceProblems &&
@@ -74,7 +86,7 @@ export function DeliveriesScreen({
               Could not load deliveries: {live.error}
             </p>
           ) : null}
-          {live.partial && !live.error ? (
+          {live.partial && !live.error && live.rows.length > 0 ? (
             <p className="text-sm text-muted-foreground" role="status">
               Partial results — some sources did not answer fully.
             </p>
@@ -109,21 +121,22 @@ export function DeliveriesScreen({
           <aside className="min-w-0 basis-[42%] overflow-auto border-r border-border">
             <ul className="divide-y divide-border border-t border-border" role="list" aria-label="Deliveries">
               {rows.map((row) => (
-                <li key={row.id} data-selected={selected?.id === row.id || undefined}>
+                <li key={row.id} data-selected={selectedItem?.id === row.id || undefined}>
                   <DeliveryRow delivery={row} onOpen={() => setSelected(row)} />
                 </li>
               ))}
             </ul>
           </aside>
           <section className="min-w-0 flex-1" aria-label="Delivery preview">
-            {selected?.anchor ? (
+            {selectedItem?.anchor ? (
               <DeliveryTraceScreen
-                deliveryId={selected.id}
-                anchor={selected.anchor}
+                deliveryId={selectedItem.id}
+                anchor={selectedItem.anchor}
+                runtimeScope={runtimeScope}
                 profile={profile}
                 profileId={profile?.id}
                 onBack={() => setSelected(null)}
-                onExploreRuntime={() => {}}
+                onExploreRuntime={onExploreRuntime}
               />
             ) : (
               <p className="px-4 py-5 text-sm text-muted-foreground">Select a delivery to inspect its trace.</p>

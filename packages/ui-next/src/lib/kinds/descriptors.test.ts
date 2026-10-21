@@ -190,4 +190,35 @@ describe("descriptors", () => {
       expect((await descriptorFor("pods")!.enrich!("prod", "shop")).size).toBe(0);
     });
   });
+
+  describe("detail Metrics pane opt-in", () => {
+    it("offers panes.metrics for Pod, Node, and classic workload kinds", () => {
+      for (const slug of [
+        "pods",
+        "nodes",
+        "deployments",
+        "statefulsets",
+        "daemonsets",
+        "replicasets",
+        "jobs",
+      ] as const) {
+        expect(descriptorFor(slug)?.panes?.metrics, slug).toBe(true);
+      }
+    });
+
+    it("leaves panes.metrics off kinds classic MetricsPanel never covered", () => {
+      expect(descriptorFor("configmaps")?.panes?.metrics).toBeFalsy();
+      expect(descriptorFor("services")?.panes?.metrics).toBeFalsy();
+      expect(descriptorFor("cronjobs")?.panes?.metrics).toBeFalsy();
+    });
+  });
+
+  describe("Pod Debug action", () => {
+    it("offers actions.debug on Pod, and nowhere else among the typed workloads", () => {
+      expect(descriptorFor("pods")!.actions.debug).toBe(true);
+      expect(descriptorFor("deployments")!.actions.debug).toBeUndefined();
+      expect(descriptorFor("jobs")!.actions.debug).toBeUndefined();
+      expect(descriptorFor("nodes")!.actions.debug).toBeUndefined();
+    });
+  });
 });

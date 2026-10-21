@@ -20,7 +20,7 @@ describe("HomeScreen empty", () => {
     render(
       <HomeScreen
         profile={{ id: "appfarm", label: "AppFarm", providers: [] }}
-        onOpenDelivery={() => {}}
+        onExploreRuntime={() => {}}
       />,
     );
 

@@ -43,6 +43,11 @@ jobs:
   # Commits, bump the version files, and commit the bump back to main ([skip ci]
   # so it doesn't re-trigger). Outputs the new version + whether to release.
   version:
+    # This pipeline publishes tags, GHCR images and distro packages for the
+    # original project. Every job below descends from this one, so gating the
+    # root keeps a migrated fork (1tuz/SmallSpace) from attempting any of it:
+    # the version job is skipped, and its dependents see no release outputs.
+    if: github.repository == 'srelens/srelens'
     runs-on: ubuntu-22.04
     # Commits the version bump back to main.
     permissions:

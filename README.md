@@ -6,9 +6,10 @@
 
 <p align="center">
   <strong>Fork note:</strong> this tree is evolving into a delivery-first DevOps
-  product around My Work and master/detail Deliveries. Kubernetes remains both
-  contextual runtime depth and a standalone explorer over the retained SRE Lens
-  platform. The current desktop shell is still a prototype.
+  product around My Work (widget mosaic with inline Trace) and master/detail
+  Deliveries. Kubernetes remains both contextual runtime depth and a standalone
+  explorer over the retained SRE Lens platform. The current desktop shell is
+  still a prototype.
 </p>
 
 <p align="center">

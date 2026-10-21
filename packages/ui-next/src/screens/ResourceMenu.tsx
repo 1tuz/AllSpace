@@ -1,8 +1,9 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   copyKubectlCommand,
   cronjobSetSuspend,
   cronjobTriggerNow,
+  debugPod,
   defaultContainer,
   deleteResource,
   describeError,
@@ -24,6 +25,12 @@ import { FailureLine } from "../lib/errorCopy";
 import { Icons } from "../lib/icons";
 import { ROW_ACTION_LABEL } from "../lib/kinds/rowActions";
 import type { KindActions, ListRow } from "../lib/kinds/types";
+import {
+  peekAction,
+  subscribeAction,
+  takeAction,
+  type ActionHandoff,
+} from "../lib/resourceHandoff";
 import { startPodSession } from "../lib/sessions";
 import { openTab } from "../lib/tabsStore";
 import { isContextPaused, useDismissOnPause } from "../lib/pausedContext";
@@ -39,6 +46,12 @@ export interface UseRowMenuArgs {
   /** The API group, for a custom kind only — see `KindDescriptor.group`. Edit
    *  carries it, so a CRD that reuses a built-in kind's name opens ITS object. */
   group?: string;
+  /**
+   * When set (detail / peek only), take a matching `/` Action handoff once and
+   * open the same Pending the row menu would. List screens omit this so they
+   * never steal an intent meant for the detail tab Console just opened.
+   */
+  handoffSubject?: { namespace: string | null; name: string; suspended?: boolean };
 }
 
 /** What a picked entry is waiting to do, once the confirm is taken. */
@@ -47,6 +60,8 @@ type Ask =
   | { type: "scale"; row: ListRow }
   | { type: "restart"; row: ListRow }
   | { type: "evict"; row: ListRow }
+  /** Attach an ephemeral debug container, then open a shell into it. */
+  | { type: "debug"; row: ListRow }
   /** `suspend: true` sets the CronJob suspended; `false` resumes it. */
   | { type: "suspend"; row: ListRow; suspend: boolean };
 
@@ -83,6 +98,36 @@ function verbOf(pending: Pending | null): string {
 function isSuspended(row: ListRow): boolean {
   const value = (row as { suspended?: unknown }).suspended;
   return typeof value === "boolean" && value;
+}
+
+/**
+ * Map a `/` Action handoff onto the same {@link Ask} the row menu would open.
+ * `trigger` returns null — Run now has no Pending; the channel is still taken
+ * so a stale intent cannot reopen later.
+ */
+function askFromActionHandoff(
+  intent: ActionHandoff,
+  subject: { namespace: string | null; name: string; suspended?: boolean },
+): Ask | null {
+  const row: ListRow & { suspended?: boolean } = {
+    name: subject.name,
+    ...(subject.namespace === null ? {} : { namespace: subject.namespace }),
+    ...(subject.suspended === undefined ? {} : { suspended: subject.suspended }),
+  };
+  switch (intent.action) {
+    case "delete":
+      return { type: "delete", row };
+    case "scale":
+      return { type: "scale", row };
+    case "restart":
+      return { type: "restart", row };
+    case "evict":
+      return { type: "evict", row };
+    case "suspend":
+      return { type: "suspend", row, suspend: !isSuspended(row) };
+    case "trigger":
+      return null;
+  }
 }
 
 /**
@@ -135,15 +180,16 @@ interface ShellPick {
  * so it isn't clipped by a scrolling body), and a caller wiring only one of
  * the two would get a menu that opens nothing or a dialog nothing opens.
  *
- * Every destructive pick — Scale, Restart rollout, Evict, Delete — sets
- * `pending` rather than acting; only `onConfirm` calls core. That is what
+ * Every destructive pick — Scale, Restart rollout, Evict, Delete, Debug —
+ * sets `pending` rather than acting; only `onConfirm` calls core. That is what
  * makes "no write happens without a confirm" true by construction rather than
  * by every call site remembering to check. Suspend/Resume also goes through
  * `pending` (it is a real write with a kubectl equivalent) but is never
  * `danger`, and Run now skips `pending` entirely — it is a call, not a
- * mutation of anything already running.
+ * mutation of anything already running. Debug is a write that then opens a
+ * shell into the new ephemeral container — classic's Pod Debug.
  */
-export function useRowMenu({ context, kind, actions, group }: UseRowMenuArgs): {
+export function useRowMenu({ context, kind, actions, group, handoffSubject }: UseRowMenuArgs): {
   items: (row: ListRow) => ContextMenuItem[];
   dialog: ReactNode;
 } {
@@ -174,6 +220,9 @@ export function useRowMenu({ context, kind, actions, group }: UseRowMenuArgs): {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [replicas, setReplicas] = useState("");
+  /** Image + optional target container for Debug — classic's defaults. */
+  const [debugImage, setDebugImage] = useState("busybox");
+  const [debugTarget, setDebugTarget] = useState("");
 
   /**
    * The divergence banner, its acknowledgement and the refusal behind it.
@@ -204,13 +253,21 @@ export function useRowMenu({ context, kind, actions, group }: UseRowMenuArgs): {
   /** The same, for the container picker — see {@link ShellPick.context}. */
   const shellMoved = shellPick !== null && shellPick.context !== context;
 
-  function open(next: Ask) {
+  function openPinned(next: Ask, pinned: string) {
     setError("");
     gate.reset();
     if (next.type === "scale") setReplicas("");
-    // The cluster the reader picked this ON, read once, here. Everything the
-    // confirm does below belongs to it.
-    setPending({ ...next, context });
+    if (next.type === "debug") {
+      setDebugImage("busybox");
+      setDebugTarget("");
+    }
+    // The cluster the reader picked this ON (or the handoff pinned), read
+    // once, here. Everything the confirm does below belongs to it.
+    setPending({ ...next, context: pinned });
+  }
+
+  function open(next: Ask) {
+    openPinned(next, context);
   }
 
   function close() {
@@ -218,6 +275,29 @@ export function useRowMenu({ context, kind, actions, group }: UseRowMenuArgs): {
     setError("");
     gate.reset();
   }
+
+  /**
+   * `/` offered an Action intent, then opened this detail. Take it once when
+   * it names this subject and open the matching Pending — same confirm the
+   * row menu would, with the handoff's cluster pin (wrong-cluster class).
+   * `trigger` has no Pending on the row menu: take still clears the channel,
+   * but nothing auto-runs.
+   */
+  const actionOffer = useSyncExternalStore(subscribeAction, peekAction, peekAction);
+  useEffect(() => {
+    if (!handoffSubject || !actionOffer) return;
+    if (actionOffer.kind !== kind) return;
+    if (actionOffer.name !== handoffSubject.name) return;
+    if ((actionOffer.namespace || "") !== (handoffSubject.namespace ?? "")) return;
+    const intent = takeAction();
+    if (!intent) return;
+    const ask = askFromActionHandoff(intent, handoffSubject);
+    if (!ask) return;
+    openPinned(ask, intent.context);
+    // openPinned closes over gate.reset / setState — stable enough for take-once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handoffSubject identity + offer
+  }, [actionOffer, handoffSubject, kind]);
+
 
   async function runNow(row: ListRow) {
     const out = await cronjobTriggerNow(context, row.namespace ?? "", row.name);
@@ -334,6 +414,23 @@ export function useRowMenu({ context, kind, actions, group }: UseRowMenuArgs): {
           return evictPod(target, ns, row.name);
         case "suspend":
           return cronjobSetSuspend(target, ns, row.name, pending.suspend);
+        case "debug": {
+          const out = await debugPod(
+            target,
+            ns,
+            row.name,
+            debugImage.trim() || "busybox",
+            debugTarget.trim() || null,
+          );
+          if (out.error || !out.container) {
+            return { error: out.error ?? "no container returned" };
+          }
+          notify.success(`Debug container ${out.container} added to ${row.name}`);
+          // Classic opens a shell into the new ephemeral container immediately —
+          // that is the point of Attach & open shell.
+          await launchShell(row, ns, out.container, target);
+          return {};
+        }
       }
     })();
     setBusy(false);
@@ -366,6 +463,18 @@ export function useRowMenu({ context, kind, actions, group }: UseRowMenuArgs): {
     }
     if (actions.shell) {
       list.push({ label: ROW_ACTION_LABEL.shell, icon: Icons.terminal, onPick: () => void startShell(row) });
+    }
+    if (actions.debug) {
+      // After Shell, before Forward: the detail header keeps the first four
+      // on the bar (Logs / Shell / Debug / Forward), matching classic's Pod
+      // Debug placement beside Shell. Danger — ephemeral containers stay
+      // until the pod restarts.
+      list.push({
+        label: ROW_ACTION_LABEL.debug,
+        icon: Icons.debug,
+        danger: true,
+        onPick: () => open({ type: "debug", row }),
+      });
     }
     if (actions.forward) {
       list.push({
@@ -457,6 +566,10 @@ export function useRowMenu({ context, kind, actions, group }: UseRowMenuArgs): {
       error={error}
       replicas={replicas}
       onReplicasChange={setReplicas}
+      debugImage={debugImage}
+      onDebugImageChange={setDebugImage}
+      debugTarget={debugTarget}
+      onDebugTargetChange={setDebugTarget}
       onConfirm={() => void confirm()}
       onCancel={close}
     />
@@ -519,6 +632,7 @@ const TITLES: Record<Exclude<Pending["type"], "suspend">, (kind: string) => stri
   scale: (kind) => `Scale ${kind}`,
   restart: (kind) => `Restart ${kind}`,
   evict: () => "Evict pod?",
+  debug: () => "Attach debug container?",
 };
 
 function messageFor(pending: Pending): ReactNode {
@@ -558,6 +672,14 @@ function messageFor(pending: Pending): ReactNode {
           {where} (respects disruption budgets)?
         </>
       );
+    case "debug":
+      return (
+        <>
+          Add an ephemeral debug container to <code>{row.name}</code>
+          {where} and open a shell into it. Ephemeral containers cannot be
+          removed until the pod restarts.
+        </>
+      );
     case "suspend":
       return (
         <>
@@ -583,6 +705,11 @@ function kubectlFor(pending: Pending, kind: string, context: string, replicas: s
       return {
         note: "No single-line kubectl equivalent — eviction uses the pod's /eviction subresource, which respects PodDisruptionBudgets (a plain delete does not).",
       };
+    case "debug":
+      // Classic shows no kubectl line either: `kubectl debug` exists, but the
+      // capability attaches via the ephemeral-containers subresource with its
+      // own image/target fields — a one-liner would lie about what ran.
+      return {};
     case "suspend":
       return {
         command: toKubectl({
@@ -610,6 +737,10 @@ function PendingDialog({
   error,
   replicas,
   onReplicasChange,
+  debugImage,
+  onDebugImageChange,
+  debugTarget,
+  onDebugTargetChange,
   onConfirm,
   onCancel,
 }: {
@@ -623,6 +754,10 @@ function PendingDialog({
   error: string;
   replicas: string;
   onReplicasChange: (value: string) => void;
+  debugImage: string;
+  onDebugImageChange: (value: string) => void;
+  debugTarget: string;
+  onDebugTargetChange: (value: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -636,9 +771,11 @@ function PendingDialog({
           ? "Restart"
           : pending.type === "evict"
             ? "Evict"
-            : pending.suspend
-              ? "Suspend"
-              : "Resume";
+            : pending.type === "debug"
+              ? "Attach & open shell"
+              : pending.suspend
+                ? "Suspend"
+                : "Resume";
   const { command, note } = kubectlFor(pending, kind, context, replicas);
 
   return (
@@ -667,6 +804,23 @@ function PendingDialog({
               invalid={Boolean(error)}
               autoFocus
             />
+          )}
+          {pending.type === "debug" && (
+            <>
+              <TextInput
+                value={debugImage}
+                onValueChange={onDebugImageChange}
+                placeholder="busybox"
+                aria-label="Debug image"
+                autoFocus
+              />
+              <TextInput
+                value={debugTarget}
+                onValueChange={onDebugTargetChange}
+                placeholder="target container name"
+                aria-label="Target container"
+              />
+            </>
           )}
           <KubectlPreview command={command} note={note} onCopy={command ? () => copyKubectlCommand(command) : undefined} />
           {/* The dialog stays open on a refusal rather than closing as if the

@@ -21,7 +21,7 @@ const ON_BAR = 2;
 
 /**
  * The same count for the full tab's header row, which the design draws with
- * four — `Logs`, `Shell`, `Debug`, `Edit` beside `Ask` and the overflow.
+ * four — `Logs`, `Shell`, `Debug`, `Forward` beside `Ask` and the overflow.
  *
  * A number rather than a second component, because that is the whole of the
  * difference between the two: the actions, their order, their icons, their
@@ -43,6 +43,7 @@ const ON_HEADER_BAR = 4;
 const BAR_LABEL: Record<string, string> = {
   [ROW_ACTION_LABEL.logs]: "Logs",
   [ROW_ACTION_LABEL.shell]: "Shell",
+  [ROW_ACTION_LABEL.debug]: "Debug",
   [ROW_ACTION_LABEL.forward]: "Forward",
 };
 
@@ -117,7 +118,7 @@ export interface DetailActionsProps {
  * layout, and nothing else about this row varies between them.
  *
  * Every action in it is the list's row menu, unchanged — `useRowMenu` already
- * owns Follow logs, Open shell, Port forward, Edit, Copy as kubectl,
+ * owns Follow logs, Open shell, Debug, Port forward, Edit, Copy as kubectl,
  * Suspend/Resume, Run now, Scale, Restart rollout, Evict and Delete, along
  * with the confirm each destructive one takes and the kubectl preview inside
  * it. A second implementation of that list is the thing this file exists to
@@ -147,7 +148,12 @@ export function DetailActions({
   host = "peek",
 }: DetailActionsProps) {
   const { ask } = useConsole();
-  const { items, dialog } = useRowMenu({ context, kind, actions });
+  const { items, dialog } = useRowMenu({
+    context,
+    kind,
+    actions,
+    handoffSubject: { namespace, name, suspended },
+  });
 
   // What a table would have handed the hook. `suspended` is not on `ListRow`
   // — `useRowMenu` reads it off the row with the same cast a `CronJobSummary`

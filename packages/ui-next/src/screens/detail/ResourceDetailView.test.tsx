@@ -936,7 +936,11 @@ describe("ResourceDetailView", () => {
           <ResourceDetailView context="ctx" kind="ConfigMap" namespace="default" name="subject-1" />,
         );
         await waitFor(() => expect(view.getByRole("tab", { name: "Details" })).toBeDefined());
-        expect(screen.getByText("level=info")).toBeDefined();
+        // Await the block, not the tab: the tab strip is drawn for any settled
+        // subject, so asserting on it and then reading the pane is a race the
+        // runner lost once in CI (the block had not reached the document yet).
+        await waitFor(() => expect(screen.getByText("level=info")).toBeDefined());
+        expect(screen.getByRole("button", { name: /^Data/ }).getAttribute("aria-expanded")).toBe("true");
       });
 
       it("leaves a Secret's Data shut, whose pane says more than the values", async () => {

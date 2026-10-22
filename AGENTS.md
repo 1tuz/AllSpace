@@ -209,3 +209,8 @@ Three suites fail on Windows only and are unrelated to your change:
 `SmallPanes.test.tsx` (ShortcutsPane) and `tailwind-sources.test.ts` (two
 cases). `crates/kube/src/toolbox.rs` has a Unix-symlink test that will not
 compile there. Do not "fix" them by changing what they assert; CI runs Linux.
+
+## Local-only files
+
+Never commit `.cursor/` or root `KEYS`, including when importing upstream changes.
+These paths were removed from the published history by user request.

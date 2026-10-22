@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/plugin-host", "crates/agent", "crates/capability", "crates/mcp", "crates/kube", "crates/streams", "crates/server", "crates/registry", "crates/llm", "crates/devops-model", "crates/devops-profiles", "crates/correlation", "crates/gitlab", "crates/jira", "crates/bitbucket", "crates/jenkins", "apps/desktop/src-tauri", "apps/tui"]
+members = ["crates/plugin-host", "crates/agent", "crates/capability", "crates/mcp", "crates/kube", "crates/streams", "crates/server", "crates/registry", "crates/llm", "crates/devops-model", "crates/devops-profiles", "crates/correlation", "crates/docker", "crates/gitlab", "crates/jira", "crates/bitbucket", "crates/jenkins", "apps/desktop/src-tauri", "apps/tui"]
 
 [workspace.package]
 edition = "2021"

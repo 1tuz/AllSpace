@@ -5,7 +5,7 @@
 
 Everything this server exposes over MCP, generated from the live registry so it cannot drift. Written for someone wiring an agent to AllSpace; the narrative reference is [MCP.md](MCP.md).
 
-## Tools (133)
+## Tools (136)
 
 Argument schemas are not reproduced here — call `tools/list` for those, which cannot go stale.
 
@@ -153,7 +153,7 @@ Argument schemas are not reproduced here — call `tools/list` for those, which 
 | `toolbox.removePlugin` | remove an installed krew plugin |
 | `toolbox.upgradePlugin` | upgrade an installed krew plugin |
 
-### Server — read-only (28)
+### Server — read-only (31)
 
 | Tool | Summary |
 | --- | --- |
@@ -166,6 +166,9 @@ Argument schemas are not reproduced here — call `tools/list` for those, which 
 | `devops.profiles.list` | list configured DevOps connection profiles without credentials |
 | `devops.search` | search deliveries by query; local issue-key/SHA/PR/build anchors plus Jira, GitLab, Bitbucket, and Jenkins confirmation when the active profile configures them |
 | `devops.traceDelivery` | trace a delivery from a provider-neutral anchor across live Jira, GitLab, Bitbucket, and Jenkins sources with evidence |
+| `docker.engineStatus` | report which local Docker-compatible engine answers, if any |
+| `docker.listContainers` | list containers on the local Docker-compatible engine |
+| `docker.listImages` | list images on the local Docker-compatible engine |
 | `extensions.catalog` | Browse the native extension catalog with a durable cache; never connects clusters |
 | `extensions.catalogManifest` | Download and checksum-verify a catalog manifest for permission review; does not install it |
 | `extensions.list` | List installed declarative extensions |

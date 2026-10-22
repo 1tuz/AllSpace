@@ -84,6 +84,27 @@
     "sensitive": false
   },
   {
+    "id": "docker.engineStatus",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "docker.listContainers",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
+    "id": "docker.listImages",
+    "readOnly": true,
+    "destructive": false,
+    "requiresConfirm": false,
+    "sensitive": false
+  },
+  {
     "id": "extensions.action",
     "readOnly": false,
     "destructive": false,

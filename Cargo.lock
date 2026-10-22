@@ -6498,6 +6498,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "srelens-docker"
+version = "0.13.0"
+dependencies = [
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "srelens-capability",
+ "tokio",
+]
+
+[[package]]
 name = "srelens-gitlab"
 version = "0.13.0"
 dependencies = [
@@ -6636,6 +6647,7 @@ dependencies = [
  "srelens-capability",
  "srelens-correlation",
  "srelens-devops-profiles",
+ "srelens-docker",
  "srelens-gitlab",
  "srelens-jenkins",
  "srelens-jira",

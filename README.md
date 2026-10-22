@@ -8,7 +8,7 @@ capability core.
 ## What it does
 
 - **One board per profile** — a single screen of compact widgets for Jira, Git,
-  CI/CD and Kubernetes (and Docker when a local engine is running). Each widget
+  CI/CD, Kubernetes and the local Docker engine. Each widget
   expands on hover, stays open when pinned, and can take the whole board.
 - **Shared context** — selecting a Jira issue, merge request, build or cluster
   resource becomes the context for its neighbours, so the window moves from the
@@ -56,8 +56,9 @@ source stays in `sourceErrors` on a partial trace rather than becoming a fact
 about the cluster or pipeline.
 
 The primary composition is the Home board: compact widgets for Summary, Delivery
-Trace, Jira, Git, CI/CD and Kubernetes, with Docker appearing only when a local
-engine is present. Widgets share one selection, so the Trace shows the chain for
+Trace, Jira, Git, CI/CD, Kubernetes and Docker. The Docker widget reads this
+machine's own engine socket and says plainly when none answers, instead of
+showing an empty board. Widgets share one selection, so the Trace shows the chain for
 whatever the reader picked. The Deliveries screen keeps its list and selected
 Trace side by side, and Kubernetes opens as a contextual drill-down from a
 widget or a trace.
@@ -83,6 +84,7 @@ crates/
   gitlab/               GitLab adapter
   bitbucket/            Bitbucket adapter
   jenkins/              Jenkins adapter
+  docker/               Read-only local Docker-compatible engine (socket reads)
   mcp/                  MCP server over stdio and loopback HTTP
   server/               Headless web host
 docs/                   Installation, usage, development, and project documentation

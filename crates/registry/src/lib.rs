@@ -486,6 +486,10 @@ pub fn build_registry_with_paths_and_settings(
             .expect("settings registration must add settings.set")
             .clone();
         srelens_devops_profiles::register(&mut reg, settings_get.clone(), settings_set);
+        // The Docker module reads this machine's own engine socket. No agent,
+        // no cluster contact, no mutating capability in this registration.
+        #[cfg(unix)]
+        srelens_docker::register(&mut reg, Arc::new(srelens_docker::LocalEngine));
         reg.register(srelens_jira::search_issues_capability(
             credentials.clone(),
             settings_get.clone(),

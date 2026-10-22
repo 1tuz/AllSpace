@@ -12,6 +12,7 @@ srelens-devops-profiles = { path = "../devops-profiles" }
 srelens-jira = { path = "../jira" }
 srelens-gitlab = { path = "../gitlab" }
 srelens-bitbucket = { path = "../bitbucket" }
+srelens-docker = { path = "../docker" }
 srelens-jenkins = { path = "../jenkins" }
 # `kind_resolver` returns `dyn srelens_mcp::resources::KindResolver`, so this is
 # real API surface, not test-only. `crates/mcp` also has `srelens-registry` as

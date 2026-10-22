@@ -91,7 +91,7 @@ pixel-perfect layout.
 
 **Product reference layout:** Home is the **board** — one screen of compact,
 related widgets (Summary, Delivery Trace, Jira, Git, CI/CD, Kubernetes, and
-Docker when a local engine is present). A widget is compact until the pointer
+Docker over this machine's own engine socket). A widget is compact until the pointer
 rests on it or the reader pins it; pinning keeps it open, Escape unpins, and any
 widget can take the whole board for real work. Selecting a row in one widget
 becomes the shared context: Jira → Git → CI → artifact → Kubernetes is shown by
@@ -146,8 +146,9 @@ Rules that are easy to break:
 - A widget with no configured source renders **unavailable** with the reason.
   It never renders zeros as if the source answered.
 - **Docker is optional.** The module reads a local engine socket (Docker Desktop,
-  colima or a podman socket) and contributes a widget only when an engine
-  answers. No cluster agent is installed for it, and mutating actions require an
+  colima or a podman socket) and registers three read-only capabilities; the
+  widget says an engine is absent, and why, rather than drawing an empty board.
+  No cluster agent is installed for it, and mutating actions require an
   explicit confirmation — hover is read-only.
 
 
@@ -355,6 +356,7 @@ The two hosts differ only in how they reach the user. Everything below `crates/r
 | `crates/kube` | Everything Kubernetes: kubeconfig discovery and merging, client cache, auth/OIDC resolution, watches, per-resource modules, actions, Helm, metrics, CRDs, toolbox. |
 | `crates/streams` | Host-agnostic streaming cores (exec, logs, forward, terminal, helm, watch). Each manager drives a `crates/kube` stream — or, for `terminal` and `helm`, a local PTY/CLI subprocess — and emits into an `EventSink` the host implements: Tauri events on desktop, WebSocket frames on the web. |
 | `crates/registry` | **Where capabilities are registered.** Tauri-free on purpose, so the headless server binary builds the identical registry without linking Tauri. Also owns the catalog projection and the MCP `KindResolver`. |
+| `crates/docker` | The local Docker module: reads a Docker-compatible engine's own Unix socket (Docker Desktop, colima, podman) with a small HTTP client rather than an SDK, and registers three read-only capabilities. Unix-only; the registration is `cfg`-gated to match. |
 | `crates/mcp` | The MCP server: tools generated from the registry, plus prompts, `k8s://` resources, watch-backed subscriptions, consent policy, token auth, and the audit log. Transports: stdio and loopback HTTP. |
 | `crates/server` | The web host: axum router, SQLite (sqlx) store, session + OIDC auth, per-user isolated environments, encrypted kubeconfigs and cluster tokens, WebSocket hub, port-forward proxy. Ships as the `srelens-server` binary. |
 | `apps/desktop/src-tauri` | The Tauri shell: window, command bridge, stream commands, updater, settings, MCP wiring. Its `capabilities.rs` is a thin re-export of `crates/registry`. |

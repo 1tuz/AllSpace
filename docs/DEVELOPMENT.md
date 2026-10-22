@@ -1,6 +1,6 @@
 # Developer guide
 
-This guide covers everything you need to build, test, and extend srelens.
+This guide covers everything you need to build, test, and extend AllSpace.
 
 ## Prerequisites
 
@@ -71,15 +71,15 @@ path.
 
 ## Architecture
 
-> **This fork:** three UI surfaces share one capability core — do not conflate
+> **This prototype:** three UI surfaces share one capability core — do not conflate
 > them. (1) **New design** (`packages/ui-next`, opt-in via `srelens.design=next`).
 > (2) **DevOps workspace** (`apps/desktop/src/workspace/`, default product shell
 > when design is classic). (3) **Classic Kubernetes IDE** (`App.tsx` +
 > `components/`, escape hatch from workspace). Open work:
-> [`TODO.md`](../TODO.md). Product rules: [DevOps workspace shell](#devops-workspace-shell-this-fork).
+> [`TODO.md`](../TODO.md). Product rules: [DevOps workspace shell](#devops-workspace-shell-this-prototype).
 > Design migration: [Classic vs ui-next vs workspace](#classic-vs-ui-next-vs-workspace-migration-map).
 
-### DevOps workspace shell (this fork)
+### DevOps workspace shell (this prototype)
 
 Delivery-first product: work item → change → build → artifact → deployment →
 runtime. **Salience** ([concepts](https://clegginabox.github.io/salience-macos/docs/concepts),
@@ -519,162 +519,29 @@ pushes and PRs to `main`, and on manual dispatch: macOS Apple Silicon
 artifacts are named `srelens-desktop-macos-arm64` and
 `srelens-desktop-linux-x86_64`, kept 14 days, and published nowhere. Updater
 signatures are disabled: CI has no signing key and must not invent one.
-The updater points at SmallSpace; CI artifacts do not publish an update feed.
-Signed updates require a SmallSpace signing key and matching public key first.
+The updater points at AllSpace; CI artifacts do not publish an update feed.
+Signed updates require an AllSpace signing key and matching public key first.
 
-The canonical repository is `1tuz/SmallSpace`. The release pipeline
+The canonical repository is `1tuz/AllSpace`. The release pipeline
 (`release.yml`, `aur-publish.yml`, `homebrew-publish.yml`) is preserved from
 upstream but gated on `github.repository == 'srelens/srelens'`, so it cannot
-tag releases, push the GHCR image, or publish distro packages from SmallSpace.
+tag releases, push the GHCR image, or publish distro packages from AllSpace.
 Scorecard still uploads SARIF locally, but publishes its external score only
 from the original repository.
 
-### Release signing key (maintainers)
+### Release status
 
-Release assets are GPG-signed by the `sign-artifacts` job, which activates
-automatically once `GPG_PRIVATE_KEY` is present and stays dormant otherwise. The
-key must be generated on a maintainer's own machine: a release-signing private
-key should never be pasted into a chat, an issue, a CI log, or any tool that
-retains input.
-
-**0. Check that gpg can prompt for a passphrase.** GnuPG delegates the prompt to
-a `pinentry` program, and a missing or misconfigured one fails the key
-generation with `agent_genkey failed: No pinentry` before anything is created.
-
-```bash
-grep pinentry ~/.gnupg/gpg-agent.conf 2>/dev/null   # what the agent expects
-ls -l "$(grep -oE '/\S*pinentry\S*' ~/.gnupg/gpg-agent.conf 2>/dev/null)"
-```
-
-If the configured program is missing, install it (`brew install pinentry-mac`
-on macOS; your distribution's `pinentry-gtk2`/`pinentry-curses` on Linux) or
-point `pinentry-program` at one you do have, then restart the agent so it picks
-up the change:
-
-```bash
-gpgconf --kill gpg-agent
-```
-
-**1. Generate a dedicated key.** Not a personal key — this one only ever signs
-srelens releases, so it can be revoked without collateral damage.
-
-```bash
-gpg --quick-generate-key "srelens release signing <releases@srelens.com>" ed25519 sign 3y
-```
-
-Note the key id it prints (the long hex string); `$KEYID` below refers to it.
-
-**2. Make a revocation certificate and back both up offline.** Do this *before*
-the key signs anything. Without the revocation certificate a lost or compromised
-key cannot be retired, only abandoned.
-
-> **Write these OUTSIDE the repository.** Both files are key material and a
-> `git add -A` will happily commit them. The revocation certificate is the
-> dangerous one: it carries no passphrase, so anyone who obtains it can revoke
-> the key permanently and irreversibly. The paths below are absolute for that
-> reason — do not run these with the repo as your working directory.
-
-```bash
-mkdir -p ~/srelens-keys && chmod 700 ~/srelens-keys
-gpg --output ~/srelens-keys/revoke.asc --gen-revoke "$KEYID"
-gpg --export-secret-keys --armor "$KEYID" > ~/srelens-keys/signing-key.asc
-```
-
-Move both to offline media (not this repo, not a cloud drive that syncs to a
-workstation), then remove `~/srelens-keys`. If either file ever reaches a
-remote, treat the key as spent and generate a new one: purging the commit does
-not help, because the revocation certificate stays valid forever.
-
-**3. Add the CI secrets.** The workflow base64-decodes the private key, so it
-must be encoded — a raw armored block loses its newlines through the secret
-store.
-
-Pipe it straight into `gh`: the key then never lands on disk or in the
-clipboard, so there is nothing to commit by accident.
-
-```bash
-# Linux
-gpg --export-secret-keys "$KEYID" | base64 -w0 \
-  | gh secret set GPG_PRIVATE_KEY --repo srelens/srelens
-
-# macOS — BSD base64 spells the wrap option -b; current macOS also accepts -w0,
-# but -b 0 works on both old and new.
-gpg --export-secret-keys "$KEYID" | base64 -b 0 \
-  | gh secret set GPG_PRIVATE_KEY --repo srelens/srelens
-
-gh secret set GPG_PASSPHRASE --repo srelens/srelens   # prompts; stays out of shell history
-```
-
-Confirm with `gh secret list --repo srelens/srelens`. Setting them through the
-web UI works too, but then the encoded key exists in a file or on the clipboard
-for as long as it takes to paste it.
-
-**4. Publish the public half.** `KEYS` is **cumulative** — export the new key
-*alongside* every key already in it, never over the top. Someone verifying an
-older release still needs the key that signed it, and needs to be able to see
-that key's revocation status; overwriting the file strands those releases with
-signatures nobody can check.
-
-Build the new file in a scratch keyring holding the archive plus the new key.
-`gpg --export` can only emit keys it actually holds, and it does **not** fail
-when asked for one it lacks — it exports what it can and exits 0 — so listing
-the retired fingerprints on an export from your own keyring silently drops
-every key you no longer have, which is exactly the case after a rotation.
-
-```bash
-RING=$(mktemp -d) && chmod 700 "$RING"
-gpg --homedir "$RING" --import KEYS            # the keys already published
-gpg --export "$KEYID" | gpg --homedir "$RING" --import   # plus the new one
-gpg --homedir "$RING" --export --armor > KEYS
-rm -rf "$RING"
-
-gpg --send-keys --keyserver hkps://keys.openpgp.org "$KEYID"
-```
-
-Confirm nothing was lost before committing — the count must have gone up by
-one, and the retired fingerprints must still be listed:
-
-```bash
-gpg --with-colons --import-options show-only --import KEYS \
-  | awk -F: '/^fpr/{print $10}'
-```
-
-For the very first key there is nothing to preserve, so `gpg --export --armor
-"$KEYID" > KEYS` is enough.
-
-Commit `KEYS`, then update the fingerprint table in
-[docs/INSTALL.md](INSTALL.md#verifying-a-download). On a **rotation**, add a
-new row rather than editing the old one, and move the `**current**` marker —
-the previous row must keep its fingerprint and gain the release range it
-covers, or every release it signed becomes unverifiable even though its key is
-still in `KEYS`:
-
-```bash
-gpg --fingerprint "$KEYID"
-```
-
-This step is not cosmetic, and it is enforced. A `Good signature` only proves
-the asset matches whichever key the verifier happens to hold; anyone can upload
-a key to a keyserver under any name or address. The published fingerprint is
-the only thing that ties a signature back to this project.
-
-It is also the **authoritative record of which key is current**: `sign-artifacts`
-refuses to sign a stable release unless the key in `GPG_PRIVATE_KEY` matches the
-fingerprint in the row marked `**current**` and that key appears in `KEYS`,
-unrevoked. A rotation that updates the secret but not the table — or the
-reverse — fails the release rather than publishing signatures the instructions
-tell users to reject.
-
-**5. Verify the next release.** After the following release completes, download
-one asset and its `.asc` and confirm `gpg --verify` succeeds following only the
-public instructions — the signing job failing loudly is not proof the signature
-is *usable*.
+AllSpace currently distributes unsigned development bundles through Actions.
+Signed distribution needs its own release configuration and signing keys;
+the inherited upstream release workflows are disabled in this repository.
+The root `KEYS` archive and `.cursor/` are local-only and must not be committed,
+including during upstream imports.
 
 ## Conventions
 
-- **Branching** — `main` is SmallSpace's default branch; open PRs against it. The original `srelens/srelens` development branch remains an upstream reference.
+- **Branching** — `main` is AllSpace's default branch; open PRs against it. The original `srelens/srelens` development branch remains an upstream reference.
 - **Commits** — imperative subject line, body explaining *why* when non-obvious. Stable releases are Conventional-Commit-driven, so use `feat(scope):` / `fix(scope):` prefixes.
-- **Formatting** — `cargo fmt` for Rust; the existing Prettier-ish style for TS (match surrounding code).
+- **Formatting** — format only edited files. Avoid workspace-wide `cargo fmt` and `rustfmt` on binary targets, which follow module declarations; match the existing TypeScript style.
 - **UI** — three surfaces: new design (`@srelens/ui-kit` in `packages/ui-next`), classic IDE (`src/components/ui` shadcn/radix, `src/ui`, `src/ui/styles.css`), and the delivery workspace (`apps/desktop/src/workspace/`). Use the owning surface’s tokens; do not mix. Design toggle and remaining classic-only gaps: [migration map](#classic-vs-ui-next-vs-workspace-migration-map) and [`TODO.md`](../TODO.md#classic-to-ui-next-gap-k8s-ide-migration).
 - **No direct Tauri imports** outside `src/transport/`.
 - **No host-specific logic in `crates/`** — if a change only makes sense for the desktop or only for the web, it belongs in `apps/desktop/src-tauri` or `crates/server`, not in the shared core.

@@ -1,22 +1,22 @@
 # Security Policy
 
-srelens is a local-first Kubernetes IDE that reads your kubeconfigs and talks
+AllSpace is a local-first DevOps workspace that reads your kubeconfigs and talks
 to your clusters, so we take security seriously. Thank you for helping keep
 users safe.
 
 ## Supported versions
 
-Security fixes target the **latest release**. Please upgrade to the newest
-version (the in-app updater or the [Releases](https://github.com/srelens/srelens/releases/latest)
-page) before reporting.
+Security fixes target the current `main` branch. There are no signed AllSpace
+releases; prototype builds are unsigned CI artifacts.
 
 ## Reporting a vulnerability
 
 **Please do not open a public issue for security vulnerabilities.**
 
-Report privately via **GitHub Private Vulnerability Reporting** — on the
-repository's **Security** tab, click **Report a vulnerability**. This keeps
-the report confidential until a fix is released.
+Private vulnerability reporting is not currently enabled for this repository.
+Contact the [maintainer](https://github.com/1tuz) to arrange a private channel
+before sharing sensitive details. Do not post credentials, kubeconfigs, or
+exploit details in a public issue.
 
 Please include:
 
@@ -40,20 +40,14 @@ credential plugins you configure.
 
 ## Security model (for context)
 
-- **No telemetry** — nothing is tracked or transmitted.
-- **No account** — there is no srelens backend; the app talks only to the
-  clusters in your kubeconfig.
-- **Kubeconfigs stay local** — srelens reads your kubeconfig files in place;
-  credentials are never copied, stored elsewhere, or logged. Exec credential
-  plugins (e.g. `kubectl oidc-login`, cloud CLIs) run locally exactly as
-  `kubectl` would run them.
-- **MCP is opt-in** — the MCP server runs only when explicitly started
-  (`--mcp-stdio` / `--mcp-http`); the HTTP transport binds to loopback only,
-  and destructive tools require an explicit confirmation argument.
-- **Signed builds** — macOS builds are Developer-ID signed and notarized;
-  in-app updater artifacts are signed and verified before install. Windows
-  code signing and GPG-signed release assets are on the
-  [roadmap](https://github.com/orgs/srelens/projects/1).
+- **Local access** — the application connects to the configured Kubernetes and
+  provider APIs; cluster access uses local kubeconfig files and credential plugins.
+- **Provider credentials** — configured tokens are managed by the local encrypted
+  credential vault; keep them out of exported profiles and diagnostic reports.
+- **MCP access** — the HTTP transport binds to loopback; destructive capabilities
+  carry confirmation requirements.
+- **Development bundles** — CI packages are unsigned. A signed release and updater
+  feed are not configured for AllSpace.
 - **MIT-licensed** — the source is open for review.
 
 ## Known dependency advisories

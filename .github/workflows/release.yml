@@ -45,7 +45,7 @@ jobs:
   version:
     # This pipeline publishes tags, GHCR images and distro packages for the
     # original project. Every job below descends from this one, so gating the
-    # root keeps a migrated fork (1tuz/SmallSpace) from attempting any of it:
+    # root keeps a migrated fork (1tuz/AllSpace) from attempting any of it:
     # the version job is skipped, and its dependents see no release outputs.
     if: github.repository == 'srelens/srelens'
     runs-on: ubuntu-22.04

@@ -55,9 +55,8 @@ an individual is officially representing the community in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the maintainers responsible for enforcement by opening a
-[private report](https://github.com/srelens/srelens/security/advisories/new) or
-contacting a maintainer directly. All complaints will be reviewed and
+reported by contacting the [maintainer](https://github.com/1tuz) to arrange a
+private channel. All complaints will be reviewed and
 investigated promptly and fairly.
 
 All maintainers are obligated to respect the privacy and security of the reporter

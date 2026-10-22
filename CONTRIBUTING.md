@@ -1,6 +1,6 @@
-# Contributing to srelens
+# Contributing to AllSpace
 
-Thanks for your interest! srelens is in early, active development, so expect fast movement and breaking changes.
+Thanks for your interest! AllSpace is a prototype in early, active development, so expect fast movement and breaking changes.
 
 By participating, you agree to abide by our [Code of Conduct](.github/CODE_OF_CONDUCT.md).
 

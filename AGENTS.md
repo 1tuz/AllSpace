@@ -8,9 +8,9 @@ What is here is the short list of traps this codebase has actually sprung —
 each one a bug that shipped, passed CI, and was found by a person looking at
 the screen. If a rule below reads as obvious, it is only obvious in hindsight.
 
-## Repository: SmallSpace is canonical
+## Repository: AllSpace is canonical
 
-`1tuz/SmallSpace` is the canonical repository. `origin` points there; CI
+`1tuz/AllSpace` is the canonical repository. `origin` points there; CI
 (tests, coverage, desktop artifacts) runs in its Actions. `srelens/srelens` is
 the upstream reference only — never push to it, and never publish releases,
 container images, Homebrew formulae or AUR packages to the original project's

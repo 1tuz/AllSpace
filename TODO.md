@@ -1,6 +1,6 @@
 # DevOps workspace TODO
 
-Direction: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#devops-workspace-shell-this-fork). Contours: [`docs/CONTOURS.md`](docs/CONTOURS.md). Migration map (classic / ui-next / workspace): [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#classic-vs-ui-next-vs-workspace-migration-map).
+Direction: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#devops-workspace-shell-this-prototype). Contours: [`docs/CONTOURS.md`](docs/CONTOURS.md). Migration map (classic / ui-next / workspace): [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#classic-vs-ui-next-vs-workspace-migration-map).
 
 ## Done
 

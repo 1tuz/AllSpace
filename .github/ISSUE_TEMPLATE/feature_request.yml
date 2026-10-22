@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest a feature or improvement for srelens.
+description: Suggest a feature or improvement for AllSpace.
 labels: [enhancement]
 body:
   - type: markdown
@@ -18,7 +18,7 @@ body:
     id: proposal
     attributes:
       label: Proposed behavior
-      description: Describe what you would like srelens to do and give an example of how you would use it.
+      description: Describe what you would like AllSpace to do and give an example of how you would use it.
     validations:
       required: true
 

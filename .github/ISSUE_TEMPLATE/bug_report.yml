@@ -1,12 +1,12 @@
 name: Bug report
-description: Report a reproducible problem in srelens.
+description: Report a reproducible problem in AllSpace.
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
         Search existing issues before filing a new report.
-        For vulnerabilities, follow the [security policy](https://github.com/srelens/srelens/security/policy) instead of opening a public issue.
+        For vulnerabilities, follow the [security policy](https://github.com/1tuz/AllSpace/security/policy) instead of opening a public issue.
 
   - type: textarea
     id: actual-behavior
@@ -38,7 +38,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: srelens version
+      label: AllSpace version
       description: Include the release version and stable/dev channel, or the commit if built from source.
     validations:
       required: true

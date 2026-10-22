@@ -1,11 +1,10 @@
-# srelens User Guide
+# AllSpace User Guide
 
-How to use srelens day to day — connecting to clusters, investigating
-resources, and taking action. For installation see the
-[installation guide](INSTALL.md); for building from source see the
+How to use AllSpace day to day — connecting to clusters, investigating
+resources, and taking action. For building from source see the
 [developer guide](DEVELOPMENT.md).
 
-> **This fork:** the current delivery-first desktop shell is a prototype. The
+> **This prototype:** the current delivery-first desktop shell is a prototype. The
 > target flow is My Work (summary + inbox + inline maximizable Trace) → optional
 > Deliveries browse → scoped Kubernetes Explorer. Sections below that describe
 > the cluster hotbar describe the temporary **classic** Kubernetes surface.
@@ -18,7 +17,7 @@ resources, and taking action. For installation see the
 > and explained in
 > [`DEVELOPMENT.md`](DEVELOPMENT.md#classic-vs-ui-next-vs-workspace-migration-map).
 
-srelens organises work around three loops — **discover** what is running,
+AllSpace organises work around three loops — **discover** what is running,
 **understand** why it is behaving the way it is, and **operate** on it safely.
 Every action below uses your local kubeconfig credentials and talks directly to
 the Kubernetes API; nothing is routed through a hosted service. Destructive
@@ -48,14 +47,14 @@ actions are identified and ask for confirmation before they run.
 
 ## First launch and connecting to clusters
 
-On first launch srelens reads your default kubeconfig (and any files listed in
+On first launch AllSpace reads your default kubeconfig (and any files listed in
 `KUBECONFIG`) and shows a searchable list of every context it finds. Click a
 context to open that cluster.
 
 Once a cluster is open, switch between clusters from the **cluster hotbar** — the
 vertical strip of avatars on the far left. Remote clusters appear at the top; a
 divider separates locally-detected development clusters (kind, k3d, minikube,
-docker-desktop, and similar), which srelens classifies automatically. The bottom
+docker-desktop, and similar), which AllSpace classifies automatically. The bottom
 of the hotbar has quick access to the light/dark toggle, the **toolbox**, and
 **settings**.
 
@@ -67,7 +66,7 @@ colour, so clusters stay visually distinct — see
 
 Kubeconfig files downloaded per cluster often reuse a generic context name such
 as `default` or `kubernetes-admin@kubernetes`. Standard kubeconfig merging keeps
-only the first of each name and silently drops the rest. srelens instead shows
+only the first of each name and silently drops the rest. AllSpace instead shows
 **every** context: a name that is unique is shown as-is, and a name that appears
 in more than one file is prefixed with its source file, for example
 `kube_prod/default` and `kube_stage/default`. Each entry connects to the cluster
@@ -82,10 +81,10 @@ look.
 **Kubeconfig sources.** Your default kubeconfig / `KUBECONFIG` is loaded first;
 additional files merge in order. Use **Add files** to pick more kubeconfig files,
 or **Paste** to paste raw YAML (with an optional name) — pasted configs are saved
-into srelens's own `kubeconfigs` folder in the application directory. Each added
+into AllSpace's own `kubeconfigs` folder in the application directory. Each added
 file appears as a chip you can remove.
 
-srelens watches all of these and refreshes automatically — both when a file
+AllSpace watches all of these and refreshes automatically — both when a file
 changes on disk and when one is **created or deleted**. That includes its own
 `kubeconfigs` folder, so a config you drop in there by hand is picked up without
 restarting, and one you delete disappears the same way. Only the app's folder is
@@ -107,7 +106,7 @@ kubeconfig on disk and is confirmation-gated.
 
 ## Browsing resources
 
-The left sidebar groups every resource kind srelens can browse:
+The left sidebar groups every resource kind AllSpace can browse:
 
 - **Cluster** — Overview, Nodes, Namespaces, Events
 - **Workloads** — Pods, Deployments, StatefulSets, DaemonSets, ReplicaSets, Jobs,
@@ -128,7 +127,7 @@ CPU and memory when a metrics server is available.
 **Search, columns, and namespaces.** Filter the current list with the search box,
 choose which columns are visible with the column picker (remembered per kind), and
 scope to one or more namespaces with the namespace selector (empty means all
-namespaces). If your credentials can't list all namespaces, srelens scopes to the
+namespaces). If your credentials can't list all namespaces, AllSpace scopes to the
 namespaces you can see and tells you so.
 
 **Bulk actions.** Select rows with their checkboxes to reveal a bar with **Delete**,
@@ -171,7 +170,7 @@ completion.
 - Toggle **Changes** to run a dry-run diff and see a side-by-side comparison per
   document before you apply. A **Changed elsewhere** indicator warns you if the
   live object drifted while you were editing.
-- If server-side apply reports a field-manager conflict, srelens shows a banner
+- If server-side apply reports a field-manager conflict, AllSpace shows a banner
   with a **Force apply** option.
 
 To create something new, use the **New** button in a resource list or the
@@ -233,7 +232,7 @@ to read the crashed instance's timestamped logs.
 
 ## Terminals and shells
 
-srelens opens interactive sessions in the dock:
+AllSpace opens interactive sessions in the dock:
 
 - **Pod shell** — an interactive exec session into a container (xterm.js). Open it
   from a Pod's **Shell** action or a container card's **Exec** button. For
@@ -243,7 +242,7 @@ srelens opens interactive sessions in the dock:
   process namespace) and opens a shell into it — useful for debugging distroless
   or minimal images.
 - **Local terminal** — your own shell on your machine, scoped to the current
-  cluster. srelens points `kubectl` at a private, single-context kubeconfig so you
+  cluster. AllSpace points `kubectl` at a private, single-context kubeconfig so you
   can't accidentally act on another cluster. Open a new one from the dock's **+**
   button.
 - **Node shell** — a privileged debug pod pinned to a node that enters the host
@@ -267,10 +266,10 @@ cluster. Each inbound connection is handled independently.
 
 ## Helm
 
-Open **Helm Releases** from the sidebar. srelens reads installed releases directly
+Open **Helm Releases** from the sidebar. AllSpace reads installed releases directly
 from their Kubernetes secrets, so listing and inspecting releases needs no Helm
 binary. Write operations and chart queries shell out to your installed `helm`; if
-it isn't on your PATH, srelens tells you and points you at the
+it isn't on your PATH, AllSpace tells you and points you at the
 [toolbox](#toolbox-cli-toolchain-and-auth-plugins) to install it.
 
 - **List** — Name, Namespace, Chart, App version, Revision, Status, and Updated
@@ -284,15 +283,15 @@ it isn't on your PATH, srelens tells you and points you at the
 ## Toolbox: CLI toolchain and auth plugins
 
 Open the **toolbox** from the hotbar (wrench icon). It manages the command-line
-tools srelens and your terminals rely on, installing them into `~/.srelens/bin`
+tools AllSpace and your terminals rely on, installing them into `~/.srelens/bin`
 without touching your system installs.
 
 - **Tools** — install or inspect **kubectl**, **krew**, and **helm**. Cards show
-  whether a tool is managed by srelens or found on your system, its version, and
+  whether a tool is managed by AllSpace or found on your system, its version, and
   its path. Installs are checksum-verified.
 - **Plugins** — search the krew index and install or remove kubectl plugins.
   Installing a plugin is confirmation-gated, since plugins run with your kubectl.
-- **Context health** — check a context's authentication requirements. srelens
+- **Context health** — check a context's authentication requirements. AllSpace
   detects the external tools a context's exec-auth needs (kubectl plugins such as
   `kubectl-oidc_login`, and cloud CLIs such as `aws`, `gcloud`,
   `gke-gcloud-auth-plugin`, `az`) and reports each as Found, Not on app PATH, or
@@ -300,7 +299,7 @@ without touching your system installs.
 
 ## Metrics
 
-When the cluster has a metrics server installed, srelens shows CPU and memory
+When the cluster has a metrics server installed, AllSpace shows CPU and memory
 usage in three places: live sparklines in a Pod, Node, or workload detail; a
 cluster-wide CPU/memory summary in the status bar; and readiness and count tiles
 on the cluster **Overview**. Without a metrics server these degrade quietly.
@@ -348,7 +347,7 @@ answers (so they are not the same table).
 
 ## Deep links
 
-srelens registers the `srelens://` URL scheme, so a link in a browser, chat
+AllSpace registers the `srelens://` URL scheme, so a link in a browser, chat
 message, runbook, or alert can open the exact thing it refers to. Clicking one
 reuses the running app — a second copy is never started — and brings its window
 to the front.
@@ -393,7 +392,7 @@ remain shared by every tab of the same kind.
 
 ## Application logs
 
-srelens keeps its own rotating log file so you can diagnose problems after they
+AllSpace keeps its own rotating log file so you can diagnose problems after they
 happen — a failed connection, an RBAC denial, an unexpected error. Open
 **Settings → Application logs** to read it:
 
@@ -402,17 +401,17 @@ happen — a failed connection, an RBAC denial, an unexpected error. Open
 - Click the path to **copy** it, or **Reveal** to open the file in your OS file
   manager.
 
-Lines are coloured by level. This is srelens's own log, separate from the
+Lines are coloured by level. This is AllSpace's own log, separate from the
 Kubernetes pod [logs](#logs) above.
 
 ## MCP server for AI agents
 
-srelens is MCP-native: every action it can take is also available to MCP-capable
+AllSpace is MCP-native: every action it can take is also available to MCP-capable
 AI clients, using your locally authenticated cluster contexts. Open
 **Settings → MCP** to:
 
 - **Run the MCP server over loopback HTTP** — tick the box and choose a port
-  (default 8765). srelens shows the URL to connect to. The server is loopback-only
+  (default 8765). AllSpace shows the URL to connect to. The server is loopback-only
   and shares the app's authenticated clients.
 - **Install the srelens CLI** — symlinks the running app so clients can launch
   `srelens --mcp-stdio`.
@@ -457,14 +456,14 @@ secret material, is gated — but *how* depends on where the server is running:
   step at all. That combination is for deliberate unattended automation, not a
   way to reach a human.
 
-Wiring an agent to srelens — transports, the security model, the full tool
+Wiring an agent to AllSpace — transports, the security model, the full tool
 catalog and worked examples — is documented in [MCP.md](MCP.md).
 
 ## AI assistant
 
-Beyond the standalone MCP server above, srelens also has an in-app assistant:
+Beyond the standalone MCP server above, AllSpace also has an in-app assistant:
 a chat drawer, opened from a resource's **Ask assistant** action, that drives
-srelens's own capabilities through your own installed coding-agent CLI —
+AllSpace's own capabilities through your own installed coding-agent CLI —
 Claude Code today, with other agents following later. It needs two things to
 be usable: that CLI installed and on your PATH, and the MCP server running
 (**Settings → MCP**, [above](#mcp-server-for-ai-agents)) — until both are
@@ -489,7 +488,7 @@ bearer token good for this loopback MCP server and nothing else.
    ([above](#context-identity-and-kubeconfig-sources)).
 5. **MCP** — the MCP server, CLI, and client configuration
    ([above](#mcp-server-for-ai-agents)).
-6. **Application logs** — srelens's own log file
+6. **Application logs** — AllSpace's own log file
    ([above](#application-logs)).
 7. **Updates** — version, release channel, and the in-app updater
    ([below](#updating)).
@@ -509,19 +508,13 @@ database through the settings API.
 
 ## Updating
 
-Open **Settings → Updates** to check for and install new versions. Choose the
-**Stable** channel for released versions or **Dev** for rolling pre-releases, then
-**Check for updates**; when one is available you can download, install, and
-restart in place.
-
-If srelens was installed through a system package manager (for example the Arch
-AUR package), the in-app updater steps aside and points you at your package
-manager instead. AppImage and Windows builds always self-update.
+AllSpace is a prototype and has no signed releases or updater feed. CI builds
+unsigned desktop bundles for local testing from
+[Actions](https://github.com/1tuz/AllSpace/actions/workflows/desktop-build.yml).
+Do not expect the in-app updater to find AllSpace builds.
 
 ## Questions and feedback
 
-Have a question, hit a rough edge, or want to suggest a feature?
-
-- Join the community on Reddit at [r/srelens](https://www.reddit.com/r/srelens/).
-- File bugs and feature requests on
-  [GitHub Issues](https://github.com/srelens/srelens/issues).
+Have a question, hit a rough edge, or want to suggest a feature? File bugs and
+feature requests on
+[GitHub Issues](https://github.com/1tuz/AllSpace/issues).

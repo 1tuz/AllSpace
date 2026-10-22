@@ -5,15 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const devopsMyWork = vi.hoisted(() => vi.fn());
 const devopsTraceDelivery = vi.hoisted(() => vi.fn());
 const listContexts = vi.hoisted(() => vi.fn());
+const podStatusCounts = vi.hoisted(() => vi.fn());
 
 vi.mock("@srelens/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@srelens/core")>()),
   devopsMyWork,
   devopsTraceDelivery,
   listContexts,
+  podStatusCounts,
 }));
 
 import { HomeScreen } from "./HomeScreen";
+import { clearWidgetCache } from "../widgets/useWidgetQuery";
 
 afterEach(() => {
   cleanup();
@@ -21,6 +24,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  clearWidgetCache();
   devopsMyWork.mockReset();
   devopsMyWork.mockResolvedValue({ deliveries: [], partial: false, sourceErrors: [] });
   devopsTraceDelivery.mockReset();
@@ -33,6 +37,10 @@ beforeEach(() => {
   });
   listContexts.mockReset();
   listContexts.mockResolvedValue({ contexts: [] });
+  podStatusCounts.mockReset();
+  podStatusCounts.mockResolvedValue({
+    counts: { pending: 0, running: 4, succeeded: 0, failed: 0, unknown: 0, other: 0 },
+  });
 });
 
 const appFarm = { id: "appfarm", label: "AppFarm", providers: [] };
@@ -151,8 +159,25 @@ describe("HomeScreen", () => {
     expect(screen.getByTestId("widget-board").getAttribute("data-board-mode")).toBe("grid");
   });
 
-  it("opens a widget on hover without pinning it", async () => {
-    const user = userEvent.setup();
+  it("hands the explorer a cluster surface from the Kubernetes widget", async () => {
+    const onExploreRuntime = vi.fn();
+    listContexts.mockResolvedValue({
+      contexts: [{ name: "kind-dev", cluster: "kind", isCurrent: true }],
+    });
+    render(<HomeScreen profile={appFarm} onExploreRuntime={onExploreRuntime} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Pin Kubernetes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Port forwards" }));
+
+    expect(onExploreRuntime).toHaveBeenCalledWith({
+      context: "kind-dev",
+      kind: "portforwards",
+      namespace: "",
+      name: "",
+    });
+  });
+
+  it("opens a widget on hover without pinning it", async () => {    const user = userEvent.setup();
     render(<HomeScreen profile={appFarm} onExploreRuntime={noopExplore} />);
 
     await user.hover(screen.getByTestId("widget-kubernetes"));

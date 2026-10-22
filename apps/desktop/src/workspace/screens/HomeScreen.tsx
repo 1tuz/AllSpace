@@ -255,13 +255,7 @@ export function HomeScreen({
           profileId={profileId}
           selection={selection}
           onSelect={choose}
-          onOpenExplorer={(context) =>
-            onExploreRuntime(
-              context
-                ? { context, kind: "deployments", namespace: "", name: "" }
-                : undefined,
-            )
-          }
+          onOpenExplorer={onExploreRuntime}
           variant="compact"
         />
       ),
@@ -271,13 +265,7 @@ export function HomeScreen({
           profileId={profileId}
           selection={selection}
           onSelect={choose}
-          onOpenExplorer={(context) =>
-            onExploreRuntime(
-              context
-                ? { context, kind: "deployments", namespace: "", name: "" }
-                : undefined,
-            )
-          }
+          onOpenExplorer={onExploreRuntime}
           variant="detail"
         />
       ),

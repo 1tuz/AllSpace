@@ -226,10 +226,88 @@ const EXCLUDED: &[(&str, &str)] = &[
         "jenkins.getBuildLog",
         "needs a live Jenkins credential and job; crate unit tests cover consoleText + failure stage",
     ),
+    (
+        "bitbucket.listPullRequests",
+        "needs a live Bitbucket token and project; crate unit tests cover pagination, normalization \
+         and rejection of the snake_case payload",
+    ),
+    (
+        "bitbucket.listCommits",
+        "needs a live Bitbucket token and project; crate unit tests cover commit normalization and \
+         the caller's camelCase payload",
+    ),
+    (
+        "bitbucket.listBranches",
+        "needs a live Bitbucket token and project; crate unit tests cover branch normalization and \
+         the caller's camelCase payload",
+    ),
+    (
+        "bitbucket.getPullRequestDiff",
+        "needs a live Bitbucket token and pull request; crate unit tests cover bounded diff files, \
+         patch attachment and the caller's camelCase payload",
+    ),
+    (
+        "devops.search",
+        "needs configured live DevOps profiles and provider credentials; the registry camelCase \
+         invoke and correlation unit tests cover anchor extraction and partial source errors",
+    ),
+    (
+        "devops.traceDelivery",
+        "needs configured live DevOps profiles and provider credentials; correlation unit tests \
+         cover anchor resolution, live joins and source-error partials",
+    ),
+    (
+        "gitlab.listMergeRequests",
+        "needs a live GitLab token and project; crate unit tests cover profile resolution, merge \
+         request normalization and the no-project refusal",
+    ),
+    (
+        "gitlab.listCommits",
+        "needs a live GitLab token and project; crate unit tests cover commit normalization and the \
+         caller's camelCase payload",
+    ),
+    (
+        "gitlab.listPipelines",
+        "needs a live GitLab token and project; crate unit tests cover pipeline normalization and the \
+         caller's camelCase payload",
+    ),
+    (
+        "gitlab.listBranches",
+        "needs a live GitLab token and project; crate unit tests cover branch normalization and the \
+         caller's camelCase payload",
+    ),
+    (
+        "gitlab.getMergeRequestDiff",
+        "needs a live GitLab token and merge request; crate unit tests cover bounded diff files, \
+         patch attachment and the caller's camelCase payload",
+    ),
+    (
+        "jenkins.listBuilds",
+        "needs a live Jenkins credential and job; crate unit tests cover profile job resolution, \
+         build normalization and rejection of the snake_case payload",
+    ),
 ];
 // installKrew, searchPlugins, installPlugin and removePlugin are exercised for
 // real in `toolbox_krew_lifecycle` below — the spec's "real krew bootstrap +
 // small-plugin install" integration test.
+
+/// An `EXCLUDED` entry is a claim that a capability this build REGISTERS is
+/// covered elsewhere, with a reason. A typo or a capability removed since
+/// would otherwise sit here reading as covered. Checked by the suite's
+/// coverage gate and by `excluded_capabilities_are_registered_and_reasoned`,
+/// which needs no cluster.
+fn assert_excluded_metadata(ids: &[&str]) {
+    let registered: HashSet<&str> = ids.iter().copied().collect();
+    let mut seen = HashSet::new();
+    for (id, reason) in EXCLUDED {
+        assert!(
+            registered.contains(id),
+            "EXCLUDED names a capability this registry does not have: {id}"
+        );
+        assert!(!reason.trim().is_empty(), "EXCLUDED {id} has no reason");
+        assert!(seen.insert(*id), "EXCLUDED lists {id} more than once");
+    }
+}
 
 fn deadline(secs: u64) -> Instant {
     Instant::now() + Duration::from_secs(secs)
@@ -954,6 +1032,54 @@ async fn run_suite() {
         "podOverview's unsettled set must match pods that are not simply Running in a plain list: {pod_overview_out}"
     );
 
+    // podStatusCounts speaks the same phase vocabulary as the plain list, so
+    // each bucket must match a fresh cluster-wide list taken beside it. The
+    // fixture Job finishes during the run, so a phase may legitimately move
+    // between the two calls — re-read and compare until they agree, and only
+    // then assert. A real counting drift never agrees, so it still fails.
+    fn counts_match(pods: &[Value], counts: &Value) -> bool {
+        let phase = |name: &str| pods.iter().filter(|p| p["phase"] == name).count() as i64;
+        [
+            ("pending", "Pending"),
+            ("running", "Running"),
+            ("succeeded", "Succeeded"),
+            ("failed", "Failed"),
+            ("unknown", "Unknown"),
+        ]
+        .iter()
+        .all(|(field, name)| counts[field].as_i64() == Some(phase(name)))
+            && ["pending", "running", "succeeded", "failed", "unknown"]
+                .iter()
+                .map(|field| counts[field].as_i64().unwrap_or(-1))
+                .sum::<i64>()
+                + counts["other"].as_i64().unwrap_or(-1)
+                == pods.len() as i64
+    }
+
+    let dl = deadline(30);
+    let (plain_pods, status_counts) = loop {
+        let plain = h
+            .ok("k8s.listPods", json!({ "context": ctx, "namespace": "" }))
+            .await;
+        let counts = h
+            .ok("k8s.podStatusCounts", json!({ "context": ctx }))
+            .await;
+        let pods = plain["pods"].as_array().unwrap();
+        if counts_match(pods, &counts) || Instant::now() > dl {
+            break (pods.clone(), counts);
+        }
+        poll_sleep().await;
+    };
+    assert!(
+        counts_match(&plain_pods, &status_counts),
+        "podStatusCounts buckets must match a plain cluster-wide pod list: {status_counts} vs {} pods",
+        plain_pods.len()
+    );
+    assert!(
+        status_counts["running"].as_i64().unwrap() >= 5,
+        "expected at least our fixture pods Running: {status_counts}"
+    );
+
     // #17: attach an ephemeral debug container to a fixture pod. It can't be
     // removed once added, but the whole namespace is torn down after the suite.
     let debug_pod = out["pods"].as_array().unwrap()[0]["name"].as_str().unwrap().to_string();
@@ -979,6 +1105,41 @@ async fn run_suite() {
         .unwrap()
         .iter()
         .any(|d| d["name"] == DEPLOY));
+
+    // listDeploymentsByImage is the delivery-correlation fan-out: same
+    // namespace filter as listDeployments, but matching pod-template images.
+    // Both fixture Deployments run busybox:1.36; nothing else is in NS.
+    let out = h
+        .ok(
+            "k8s.listDeploymentsByImage",
+            json!({
+                "context": ctx,
+                "images": ["busybox:1.36"],
+                "namespaces": [NS],
+            }),
+        )
+        .await;
+    let matches = out["deployments"].as_array().unwrap();
+    assert_eq!(
+        matches.len(),
+        2,
+        "both fixture Deployments use busybox:1.36 and no other Deployment is in {NS}: {out}"
+    );
+    for name in [DEPLOY, HTTP_DEPLOY] {
+        let matched = matches
+            .iter()
+            .find(|d| d["name"] == name)
+            .unwrap_or_else(|| panic!("listDeploymentsByImage must find {name}: {out}"));
+        assert_eq!(matched["namespace"], json!(NS));
+        assert!(
+            matched["images"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|image| image == "busybox:1.36"),
+            "matched Deployment must report the image it matched: {matched}"
+        );
+    }
 
     let out = h
         .ok(
@@ -2358,9 +2519,10 @@ async fn run_suite() {
             println!("excluded: {id} — {reason}");
         }
     }
-    let excluded_ids: HashSet<&str> = EXCLUDED.iter().map(|(id, _)| *id).collect();
     let mut ids = h.reg.ids();
     ids.sort();
+    assert_excluded_metadata(&ids);
+    let excluded_ids: HashSet<&str> = EXCLUDED.iter().map(|(id, _)| *id).collect();
     let missing: Vec<&str> = ids
         .iter()
         .filter(|id| !h.covered.contains(**id) && !excluded_ids.contains(*id))
@@ -2756,5 +2918,25 @@ async fn mcp_prompts_name_only_real_capabilities() {
                 }
             }
         }
+    }
+}
+
+/// The exclusion list is what keeps the coverage gate honest, so it must be
+/// honest itself: every id it names has to exist in this build, carry a
+/// reason, and appear once. Like its neighbour above this needs no cluster —
+/// `build_registry` registers lazy closures — so a typo or a capability
+/// removed under an `EXCLUDED` entry fails on a laptop, not only in the
+/// kind-backed run.
+#[test]
+fn excluded_capabilities_are_registered_and_reasoned() {
+    let registry = srelens_desktop_lib::build_registry();
+    let ids = registry.ids();
+    assert_excluded_metadata(&ids);
+
+    // The two capabilities this suite exercises for real, rather than
+    // excluding: if either is renamed, the case that calls it would fail only
+    // in the cluster run, and the coverage gate would not miss it.
+    for id in ["k8s.listDeploymentsByImage", "k8s.podStatusCounts"] {
+        assert!(ids.contains(&id), "e2e case calls unregistered {id}");
     }
 }

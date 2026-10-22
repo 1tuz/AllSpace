@@ -286,6 +286,21 @@ const EXCLUDED: &[(&str, &str)] = &[
         "needs a live Jenkins credential and job; crate unit tests cover profile job resolution, \
          build normalization and rejection of the snake_case payload",
     ),
+    (
+        "docker.engineStatus",
+        "reads this machine's own engine socket; the CI runner has no engine, and `srelens-docker` \
+         unit tests cover the absent, answering and refusing engine over a fake Unix socket",
+    ),
+    (
+        "docker.listContainers",
+        "needs a running local Docker engine; `srelens-docker` unit tests cover compose labels, \
+         ports, attention and an unreadable answer against a fake Unix socket",
+    ),
+    (
+        "docker.listImages",
+        "needs a running local Docker engine; `srelens-docker` unit tests cover tag filtering, \
+         id truncation and an unreadable answer against a fake Unix socket",
+    ),
 ];
 // installKrew, searchPlugins, installPlugin and removePlugin are exercised for
 // real in `toolbox_krew_lifecycle` below — the spec's "real krew bootstrap +

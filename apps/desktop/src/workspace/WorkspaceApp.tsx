@@ -13,6 +13,7 @@ import { DeliveriesScreen } from "./screens/DeliveriesScreen";
 import { DeliveryTraceScreen } from "./screens/DeliveryTraceScreen";
 import { FirstRunScreen, type FirstRunContourChoice } from "./screens/FirstRunScreen";
 import { HomeScreen } from "./screens/HomeScreen";
+import { clearWidgetCache } from "./widgets/useWidgetQuery";
 import { KubernetesExplorerScreen } from "./screens/KubernetesExplorerScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { draftFromContour, profileFor } from "../components/DevOpsSettingsSection";
@@ -105,6 +106,7 @@ export function WorkspaceApp({
     setRuntimeScope(null);
     setRuntimeFocus(null);
     setListSelection(null);
+    clearWidgetCache();
     const next = await selectWorkspaceProfile(profileId);
     setProfiles(next.profiles);
     setActiveProfileId(next.activeProfileId);
@@ -216,7 +218,6 @@ export function WorkspaceApp({
           runtimeScope={runtimeScope}
           selected={listSelection}
           onSelect={setListSelection}
-          onOpenDelivery={openDelivery}
           onExploreRuntime={exploreRuntime}
         />
       )}

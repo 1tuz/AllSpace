@@ -42,6 +42,13 @@
     "sensitive": false
   },
   {
+    "id": "devops.profiles.delete",
+    "readOnly": false,
+    "destructive": false,
+    "requiresConfirm": true,
+    "sensitive": false
+  },
+  {
     "id": "devops.profiles.list",
     "readOnly": true,
     "destructive": false,

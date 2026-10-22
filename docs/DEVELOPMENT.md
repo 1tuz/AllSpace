@@ -136,6 +136,13 @@ Rules that are easy to break:
   state.
 - Layout is stored per profile through `settingsStorage` (the same adapter as
   every other preference), never in `localStorage`.
+- Profiles are created, renamed, duplicated and deleted in Settings → DevOps.
+  Deletion is one transaction from the operator's view: stored credentials are
+  cleared, the board layout for that id is dropped, and
+  `devops.profiles.delete` moves the selection to a remaining profile. The
+  capability deliberately cannot reach the vault or the renderer, so the settings
+  screen does those two halves; `srelens:devops-profiles` keeps the open board in
+  step with the result.
 - A widget with no configured source renders **unavailable** with the reason.
   It never renders zeros as if the source answered.
 - **Docker is optional.** The module reads a local engine socket (Docker Desktop,

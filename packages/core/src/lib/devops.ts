@@ -142,6 +142,14 @@ export async function devopsProfileSelect(profileId: string): Promise<DevOpsProf
   return state;
 }
 
+/** Deleting the active profile moves the selection to a remaining one. */
+export async function devopsProfileDelete(profileId: string): Promise<DevOpsProfilesState> {
+  const state = await invokeCapability<DevOpsProfilesState>("devops.profiles.delete", { profileId });
+  clearDevopsTraceCache();
+  rememberActiveProfile(state);
+  return state;
+}
+
 /** Desktop-only command. The secret goes directly to the encrypted vault. */
 export function devopsCredentialSet(
   profileId: string,

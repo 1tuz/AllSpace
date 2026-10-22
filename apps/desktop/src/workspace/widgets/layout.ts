@@ -23,7 +23,7 @@ export const DEFAULT_BOARD_LAYOUT: WidgetSlot[] = [
   { id: "trace", span: 2 },
 ];
 
-type LayoutStore = Pick<Storage, "getItem" | "setItem">;
+type LayoutStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 function isWidgetId(value: unknown): value is WidgetId {
   return typeof value === "string" && (BOARD_WIDGET_IDS as string[]).includes(value);
@@ -74,6 +74,17 @@ export function saveBoardLayout(profileId: string, layout: WidgetSlot[], storage
     backing.setItem(boardLayoutKey(profileId), JSON.stringify(normalizeBoardLayout(layout)));
   } catch {
     /* settings backend unavailable — keep the in-memory layout */
+  }
+}
+
+/** Drop a deleted profile's layout so a recreated id starts from the default. */
+export function clearBoardLayout(profileId: string, storage?: LayoutStore): void {
+  const backing = storage ?? defaultStorage();
+  if (!backing) return;
+  try {
+    backing.removeItem(boardLayoutKey(profileId));
+  } catch {
+    /* settings backend unavailable — nothing was stored to drop */
   }
 }
 

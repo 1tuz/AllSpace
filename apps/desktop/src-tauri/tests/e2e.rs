@@ -707,6 +707,26 @@ async fn run_suite() {
         .ok("devops.profiles.select", json!({ "profileId": "e2e" }))
         .await;
     assert_eq!(profiles["activeProfileId"], "e2e");
+    h.ok(
+        "devops.profiles.upsert",
+        json!({
+            "profile": {
+                "id": "e2e-delete", "label": "E2E delete", "providers": [{
+                    "provider": "jira", "baseUrl": "https://jira.example.test", "authMethod": "session"
+                }]
+            }
+        }),
+    )
+    .await;
+    let profiles = h
+        .ok("devops.profiles.delete", json!({ "profileId": "e2e-delete" }))
+        .await;
+    assert_eq!(profiles["profiles"].as_array().unwrap().len(), 1);
+    assert_eq!(profiles["activeProfileId"], "e2e");
+    assert!(h
+        .err("devops.profiles.select", json!({ "profileId": "e2e-delete" }))
+        .await
+        .contains("unknown profile id"));
 
     // === A connector with a profile but no credential names that reason ====
     let refusal = h

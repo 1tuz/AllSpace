@@ -5,7 +5,7 @@
 
 Everything this server exposes over MCP, generated from the live registry so it cannot drift. Written for someone wiring an agent to AllSpace; the narrative reference is [MCP.md](MCP.md).
 
-## Tools (132)
+## Tools (133)
 
 Argument schemas are not reproduced here — call `tools/list` for those, which cannot go stale.
 
@@ -186,10 +186,11 @@ Argument schemas are not reproduced here — call `tools/list` for those, which 
 | `ping` | health check; echoes the input back as { pong: <input> } |
 | `settings.get` | read durable desktop settings; omit key to return the complete map |
 
-### Server — needs confirmation (5)
+### Server — needs confirmation (6)
 
 | Tool | Summary |
 | --- | --- |
+| `devops.profiles.delete` | delete a DevOps profile, moving the selection to a remaining profile |
 | `devops.profiles.select` | select an existing DevOps profile for subsequent trace requests |
 | `devops.profiles.upsert` | create or update public DevOps profile configuration without credentials |
 | `extensions.action` | Request a host-owned GitOps action on an app resource; requires explicit confirmation |

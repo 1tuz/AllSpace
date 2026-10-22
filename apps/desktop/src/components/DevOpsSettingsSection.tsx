@@ -1,19 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Copy, Trash2 } from "lucide-react";
 import {
   devopsCredentialClear,
   devopsCredentialSet,
   devopsCredentialStatus,
+  devopsProfileDelete,
   devopsProfileSelect,
   devopsProfilesList,
   devopsProfileUpsert,
   notify,
   type DevOpsCredentialRef,
   type DevOpsProfile,
+  type DevOpsProfilesState,
   type DevOpsProvider,
 } from "@srelens/core";
-import { Button, TextInput } from "../ui";
+import { Button, ConfirmDialog, TextInput } from "../ui";
 import { CONTOUR_PRESETS, contourById, type ContourId } from "../workspace/contours";
+import { clearBoardLayout } from "../workspace/widgets/layout";
+import { clearWidgetCache } from "../workspace/widgets/useWidgetQuery";
+
+/** Settings lives beside the board, so a profile change has to reach it live. */
+const PROFILES_CHANGED = "srelens:devops-profiles";
+
+function publishProfiles(state: DevOpsProfilesState) {
+  window.dispatchEvent(new CustomEvent<DevOpsProfilesState>(PROFILES_CHANGED, { detail: state }));
+}
 
 export type ProfileDraft = {
   id: string;
@@ -167,6 +178,7 @@ export function DevOpsSettingsSection() {
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [usernames, setUsernames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const active = useMemo(() => profiles.find((profile) => profile.id === activeId), [activeId, profiles]);
 
@@ -191,6 +203,7 @@ export function DevOpsSettingsSection() {
       setProfiles(state.profiles);
       setActiveId(profileId);
       setDraft(draftFor(state.profiles.find((profile) => profile.id === profileId)));
+      publishProfiles(state);
     } catch (error) {
       notify.error(String(error));
     } finally {
@@ -206,7 +219,72 @@ export function DevOpsSettingsSection() {
       const state = await devopsProfileUpsert(profileFor(next), true);
       setProfiles(state.profiles);
       setActiveId(next.id);
+      publishProfiles(state);
       notify.success(`${next.label} public endpoints saved — paste credentials below (from sibling .env)`);
+    } catch (error) {
+      notify.error(String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Blank form: saving a new id adds a profile rather than replacing one. */
+  function startNewProfile() {
+    setDraft({ ...EMPTY_DRAFT, id: "", label: "" });
+  }
+
+  function uniqueProfileId(base: string | undefined): string {
+    let candidate = `${base || "profile"}-copy`;
+    for (let copy = 2; profiles.some((profile) => profile.id === candidate); copy += 1) {
+      candidate = `${base || "profile"}-copy-${copy}`;
+    }
+    return candidate;
+  }
+
+  async function duplicateProfile() {
+    if (!active) return;
+    const copy: ProfileDraft = {
+      ...draftFor(active),
+      id: uniqueProfileId(active.id),
+      label: `${active.label} copy`,
+    };
+    setBusy(true);
+    try {
+      const state = await devopsProfileUpsert(profileFor(copy), true);
+      setProfiles(state.profiles);
+      setActiveId(copy.id);
+      setDraft(copy);
+      publishProfiles(state);
+      notify.success(
+        "Profile copied — endpoints only, so paste its credentials below",
+      );
+    } catch (error) {
+      notify.error(String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Credentials and layout belong to the id, so a deleted id must not leave them behind. */
+  async function deleteProfile() {
+    const target = active;
+    if (!target) return;
+    setConfirmingDelete(false);
+    setBusy(true);
+    try {
+      for (const entry of stored.filter((ref) => ref.profileId === target.id)) {
+        await devopsCredentialClear(target.id, entry.provider);
+      }
+      clearBoardLayout(target.id);
+      const state = await devopsProfileDelete(target.id);
+      clearWidgetCache();
+      const nextId = state.activeProfileId ?? state.profiles[0]?.id ?? "";
+      setProfiles(state.profiles);
+      setActiveId(nextId);
+      setDraft(draftFor(state.profiles.find((profile) => profile.id === nextId)));
+      setStored(await devopsCredentialStatus());
+      publishProfiles(state);
+      notify.success(`${target.label} removed`);
     } catch (error) {
       notify.error(String(error));
     } finally {
@@ -226,6 +304,7 @@ export function DevOpsSettingsSection() {
       setProfiles(state.profiles);
       setActiveId(profile.id);
       setDraft(draftFor(profile));
+      publishProfiles(state);
       notify.success("DevOps profile saved");
     } catch (error) {
       notify.error(String(error));
@@ -341,8 +420,31 @@ export function DevOpsSettingsSection() {
           )}
           {field("caBundlePath", "Corporate CA PEM path (optional)", "/etc/ssl/certs/corp-ca.pem")}
         </div>
-        <div><Button onClick={saveProfile} disabled={busy}>Save profile</Button></div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={saveProfile} disabled={busy}>Save profile</Button>
+          <Button variant="secondary" onClick={startNewProfile} disabled={busy}>New profile</Button>
+          <Button variant="secondary" onClick={duplicateProfile} disabled={busy || !active} aria-label="Duplicate active profile">
+            <Copy className="size-4" aria-hidden="true" /> Duplicate
+          </Button>
+          {active && (
+            <Button variant="ghost" onClick={() => setConfirmingDelete(true)} disabled={busy} aria-label="Delete active profile">
+              <Trash2 className="size-4" aria-hidden="true" /> Delete
+            </Button>
+          )}
+        </div>
       </div>
+
+      {confirmingDelete && active && (
+        <ConfirmDialog
+          title={`Delete ${active.label}?`}
+          message="Its stored credentials, board layout and selection are removed too. This cannot be undone."
+          confirmLabel="Delete profile"
+          danger
+          busy={busy}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => void deleteProfile()}
+        />
+      )}
 
       {active?.providers.map((provider) => {
         const hasCredential = configured(stored, active.id, provider.provider);

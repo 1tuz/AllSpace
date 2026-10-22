@@ -4,6 +4,7 @@ import {
   notify,
   type DeliveryAnchor,
   type DevOpsProfile,
+  type DevOpsProfilesState,
 } from "@srelens/core";
 import { WorkspacePalette, type PaletteAction } from "./WorkspacePalette";
 import { WorkspaceShell } from "./WorkspaceShell";
@@ -98,6 +99,24 @@ export function WorkspaceApp({
       cancelled = true;
     };
   }, []);
+
+  // Settings edits profiles in place, so the board has to hear about them live.
+  useEffect(() => {
+    function onProfiles(event: Event) {
+      const state = (event as CustomEvent<DevOpsProfilesState>).detail;
+      if (!state) return;
+      setProfiles(state.profiles);
+      const nextId = state.activeProfileId ?? state.profiles[0]?.id ?? "";
+      if (nextId === activeProfileId) return;
+      setActiveProfileId(nextId);
+      setRuntimeScope(null);
+      setRuntimeFocus(null);
+      setListSelection(null);
+      clearWidgetCache();
+    }
+    window.addEventListener("srelens:devops-profiles", onProfiles);
+    return () => window.removeEventListener("srelens:devops-profiles", onProfiles);
+  }, [activeProfileId]);
 
   async function onSelectProfile(profileId: string) {
     setActiveProfileId(profileId);

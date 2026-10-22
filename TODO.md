@@ -39,14 +39,14 @@ Legend — state: `done` · `active` · `todo` · `blocked`.
 | P0.5 | Shared selection context | done | P0.3 | Selecting a Jira issue, MR/PR, build or Kubernetes resource updates the board context and the Trace widget; nothing invents a missing link | Interaction test: row click → Trace anchor; missing provider → source error, not a false chain |
 | P0.6 | Per-profile layout persistence and reordering | done | P0.3 | Layout keyed by profile id, saved through `settingsStorage`; move and resize without drag-only affordances; unknown ids fall back to the default layout | `layout.test.ts` (round-trip, unknown ids, per-profile isolation) |
 | P0.7 | Profile switch isolation | done | P0.6 | Switching profile clears selection, cancels in-flight widget calls, partitions caches by profile, swaps layout, and never renders the previous profile's data | Interaction test: switch with an open widget → no cross-contour rows |
-| P0.8 | CI coverage for board interaction | todo | P0.7 | Hover, pin, collapse, Escape and profile switch run in the `frontend` job; heavy/visual passes stay off the required path but run nightly | Green `CI` on the pushed commit; `Nightly` workflow dispatched |
+| P0.8 | CI coverage for board interaction | done | P0.7 | Hover, pin, collapse, Escape and profile switch run in the `frontend` job; heavy/visual passes stay off the required path but run nightly | Green `CI` on the pushed commit; `Nightly` workflow dispatched |
 
 ### P1 — depth, profiles as a product, optional Docker
 
 | # | Task | State | Depends | Done when | Verify |
 | --- | --- | --- | --- | --- | --- |
-| P1.1 | Profile CRUD: create, rename, duplicate, delete | todo | P0.7 | The UI can do all four; deleting a profile also clears its stored credentials, layout and selection; deleting the active profile selects a remaining one | Component test + Rust test for the delete capability |
-| P1.2 | `devops.profiles.delete` capability | todo | P1.1 | Registered read/write-annotated, catalog regenerated, e2e case added, credentials for that profile dropped | `cargo test -p srelens-devops-profiles`, catalog sync test |
+| P1.1 | Profile CRUD: create, rename, duplicate, delete | done | P0.7 | The UI can do all four; deleting a profile also clears its stored credentials, layout and selection; deleting the active profile selects a remaining one | Component test + Rust test for the delete capability |
+| P1.2 | `devops.profiles.delete` capability | done | P1.1 | Registered read/write-annotated, catalog regenerated, e2e case added, credentials for that profile dropped | `cargo test -p srelens-devops-profiles`, catalog sync test |
 | P1.3 | Widget deep-links into the Kubernetes explorer | todo | P0.5 | Kubernetes widget opens namespaced resources, logs, YAML, events, shell, port-forward and Helm in `KubernetesExplorerScreen` with the same context and profile-scoped kubeconfig | Handoff test + manual drill |
 | P1.4 | Docker read-only module | todo | P0.4 | Existing local containers, images and Compose projects are listed from the local engine socket (Docker Desktop, colima, podman socket) with no agent installed and no mutating action on hover; an absent engine renders **unavailable**, never an empty list | Rust unit tests over a fake socket; widget state test |
 | P1.5 | Docker actions behind confirmation | todo | P1.4 | Start/stop/restart only after explicit confirmation, capability annotated `requires_confirm`, never triggered by hover | Rust gating test + UI confirm test |

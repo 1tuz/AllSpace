@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BOARD_LAYOUT,
   boardLayoutKey,
+  clearBoardLayout,
   loadBoardLayout,
   moveWidget,
   normalizeBoardLayout,
@@ -15,6 +16,9 @@ function memoryStorage() {
     getItem: (key: string) => map.get(key) ?? null,
     setItem: (key: string, value: string) => {
       map.set(key, value);
+    },
+    removeItem: (key: string) => {
+      map.delete(key);
     },
     raw: map,
   };
@@ -59,6 +63,17 @@ describe("board layout", () => {
     const storage = memoryStorage();
     storage.setItem(boardLayoutKey("x"), "{not json");
     expect(loadBoardLayout("x", storage)).toEqual(DEFAULT_BOARD_LAYOUT);
+  });
+
+  it("forgets the layout of a deleted profile without touching its neighbours", () => {
+    const storage = memoryStorage();
+    saveBoardLayout("komus", moveWidget(DEFAULT_BOARD_LAYOUT, "ci", -1), storage);
+    saveBoardLayout("appfarm", DEFAULT_BOARD_LAYOUT, storage);
+
+    clearBoardLayout("komus", storage);
+
+    expect(loadBoardLayout("komus", storage)).toEqual(DEFAULT_BOARD_LAYOUT);
+    expect(storage.getItem(boardLayoutKey("appfarm"))).not.toBeNull();
   });
 
   it("moves only within bounds and toggles a span", () => {

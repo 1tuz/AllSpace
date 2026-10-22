@@ -30,6 +30,8 @@ const EXCLUDED: Record<string, string> = {
     "profile configuration belongs in the future DevOps settings flow, not a resource-targeted palette action",
   "devops.profiles.select":
     "active profile selection belongs in the future DevOps settings flow, not a resource-targeted palette action",
+  "devops.profiles.delete":
+    "deleting a profile needs a chosen target and an explicit confirmation in Settings → DevOps",
 };
 
 describe("command palette action coverage", () => {

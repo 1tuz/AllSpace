@@ -165,6 +165,12 @@ struct SelectProfileIn {
     profile_id: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct DeleteProfileIn {
+    profile_id: String,
+}
+
 /// Add profile management on top of the existing durable settings capability.
 /// Values are configuration only: no credential field is accepted or emitted.
 pub fn register(registry: &mut Registry, settings_get: Capability, settings_set: Capability) {
@@ -209,8 +215,8 @@ pub fn register(registry: &mut Registry, settings_get: Capability, settings_set:
         },
     ));
 
-    let select_get = settings_get;
-    let select_set = settings_set;
+    let select_get = settings_get.clone();
+    let select_set = settings_set.clone();
     registry.register(Capability::typed::<SelectProfileIn, ProfilesState, _, _>(
         "devops.profiles.select",
         "select an existing DevOps profile for subsequent trace requests",
@@ -228,6 +234,34 @@ pub fn register(registry: &mut Registry, settings_get: Capability, settings_set:
                     return Err(CapabilityError::InvalidInput("unknown profile id".into()));
                 }
                 state.active_profile_id = Some(input.profile_id);
+                save_state(&set, &state).await?;
+                Ok(state)
+            }
+        },
+    ));
+
+    // Credential values live in the host vault and board layout lives in the
+    // renderer, so the caller drops those; this forgets the public configuration
+    // and never leaves the deleted id selected.
+    registry.register(Capability::typed::<DeleteProfileIn, ProfilesState, _, _>(
+        "devops.profiles.delete",
+        "delete a DevOps profile, moving the selection to a remaining profile",
+        Annotations::MUTATING,
+        move |input| {
+            let get = settings_get.clone();
+            let set = settings_set.clone();
+            async move {
+                let mut state = read_state(&get).await?;
+                let existing = state.profiles.len();
+                state
+                    .profiles
+                    .retain(|profile| profile.id != input.profile_id);
+                if state.profiles.len() == existing {
+                    return Err(CapabilityError::InvalidInput("unknown profile id".into()));
+                }
+                if state.active_profile_id.as_deref() == Some(input.profile_id.as_str()) {
+                    state.active_profile_id = state.profiles.first().map(|p| p.id.clone());
+                }
                 save_state(&set, &state).await?;
                 Ok(state)
             }
@@ -701,6 +735,53 @@ mod tests {
             .unwrap();
 
         assert_eq!(selected["activeProfileId"], "appfarm");
+    }
+
+    #[tokio::test]
+    async fn deleting_a_profile_drops_it_and_moves_the_selection() {
+        let state = std::sync::Arc::new(std::sync::Mutex::new(json!({})));
+        let mut registry = Registry::new();
+        let get_state = state.clone();
+        let settings = Capability::read_only("settings.get", "", move |_| {
+            let state = get_state.clone();
+            async move { Ok(json!({ "values": state.lock().unwrap().clone() })) }
+        });
+        let save_state = state.clone();
+        let save = Capability::read_only("settings.set", "", move |input| {
+            let state = save_state.clone();
+            async move {
+                *state.lock().unwrap() = input["values"].clone();
+                Ok(json!({ "saved": true }))
+            }
+        });
+        register(&mut registry, settings, save);
+
+        for id in ["appfarm", "komus"] {
+            registry
+                .invoke("devops.profiles.upsert", json!({
+                    "profile": {
+                        "id": id, "label": id, "providers": [
+                            { "provider": "jira", "baseUrl": "https://jira.example.test", "authMethod": "session" }
+                        ]
+                    },
+                    "select": id == "komus"
+                }))
+                .await
+                .unwrap();
+        }
+
+        let after = registry
+            .invoke("devops.profiles.delete", json!({ "profileId": "komus" }))
+            .await
+            .unwrap();
+
+        assert_eq!(after["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(after["profiles"][0]["id"], "appfarm");
+        assert_eq!(after["activeProfileId"], "appfarm");
+        assert!(registry
+            .invoke("devops.profiles.delete", json!({ "profileId": "komus" }))
+            .await
+            .is_err());
     }
 
     fn komus_state() -> ProfilesState {

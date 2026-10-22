@@ -7,16 +7,23 @@ capability core.
 
 ## What it does
 
-- **My Work** — a widget mosaic with a summary, an inbox, and an inline delivery
-  Trace. Selecting a delivery fills the Trace without leaving the screen.
-- **Deliveries** — a browse list beside the selected Trace, with situations on
-  the rows.
+- **One board per profile** — a single screen of compact widgets for Jira, Git,
+  CI/CD and Kubernetes (and Docker when a local engine is running). Each widget
+  expands on hover, stays open when pinned, and can take the whole board.
+- **Shared context** — selecting a Jira issue, merge request, build or cluster
+  resource becomes the context for its neighbours, so the window moves from the
+  whole infrastructure to one object without leaving the screen.
 - **Delivery Trace** — work item → change → build → artifact → deployment →
-  runtime, joined from provider data with explicit evidence and confidence.
+  runtime, joined from provider data with explicit evidence and confidence. The
+  Trace widget is the join; other widgets are views onto the same context.
+- **Working profiles** — each profile owns its Jira/GitLab/Bitbucket/Jenkins
+  connections, kubeconfigs and namespaces, project filters, widget layout and
+  refresh settings. Switching profiles isolates data, caches, in-flight calls
+  and Kubernetes contexts.
 - **Provider adapters** — Jira, GitLab, Bitbucket, and Jenkins feed a
   provider-neutral delivery model.
 - **Kubernetes depth** — the Kubernetes explorer opens as a contextual
-  drill-down from a trace, over local kubeconfig credentials.
+  drill-down from the board or a trace, over local kubeconfig credentials.
 - **MCP access** — the same capability registry is exposed to MCP-capable
   clients over stdio or loopback HTTP.
 - **Partial results stay partial** — a failed provider or cluster call is
@@ -48,10 +55,12 @@ provider-neutral: `crates/devops-model` defines anchors, entities, edges, and a
 source stays in `sourceErrors` on a partial trace rather than becoming a fact
 about the cluster or pipeline.
 
-The primary composition is Home's My Work mosaic: summary, inbox, and inline
-Trace. Selecting a delivery fills the Trace region, which can maximize. The
-Deliveries screen keeps its list and selected Trace side by side, and Kubernetes
-opens as a contextual drill-down from a trace.
+The primary composition is the Home board: compact widgets for Summary, Delivery
+Trace, Jira, Git, CI/CD and Kubernetes, with Docker appearing only when a local
+engine is present. Widgets share one selection, so the Trace shows the chain for
+whatever the reader picked. The Deliveries screen keeps its list and selected
+Trace side by side, and Kubernetes opens as a contextual drill-down from a
+widget or a trace.
 
 Repository layout:
 

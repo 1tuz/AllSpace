@@ -89,24 +89,72 @@ master-detail density, restrained macOS chrome. Copy the *feel* (hierarchy,
 compact rows, one primary narrative). Do not copy branding, logos, or a
 pixel-perfect layout.
 
-**Product reference layout:** Home — summary strip + My Work inbox + inline
-trace as a maximizable widget mosaic (`HomeMosaic` / `HomeWidget`). Selecting a
-delivery fills Trace without leaving My Work. Deliveries — browse list left,
-trace detail right, situations on rows. Sidebar tabs (Deliveries, Kubernetes,
-…) remain for deeper / alternate views. Converge on that joined unit-of-work
-composition, not a wall of disconnected provider widgets. Do not reintroduce
-Dockview.
+**Product reference layout:** Home is the **board** — one screen of compact,
+related widgets (Summary, Delivery Trace, Jira, Git, CI/CD, Kubernetes, and
+Docker when a local engine is present). A widget is compact until the pointer
+rests on it or the reader pins it; pinning keeps it open, Escape unpins, and any
+widget can take the whole board for real work. Selecting a row in one widget
+becomes the shared context: Jira → Git → CI → artifact → Kubernetes is shown by
+the Trace widget, which never invents a link a source did not supply.
+Deliveries keeps the browse list beside the selected trace. Sidebar
+destinations remain for deeper views. Do not reintroduce Dockview or a
+third-party layout engine.
+
+The fixed Summary / Inbox / Trace arrangement is now the **default layout**, not
+a prohibition: order and width are per profile, saved through `settingsStorage`,
+and first launch needs no configuration.
+
+#### Widget state contract
+
+| State | Entered by | Leaves by | Content |
+| --- | --- | --- | --- |
+| `compact` | default, pointer leaves, Escape | hover intent, click | key numbers and at most a few rows |
+| `hover` | pointer rests ~180 ms | pointer leaves (short grace), pin | extra rows/detail, mounted once and kept |
+| `pinned` | click / `Enter` on the header | second click, Escape, close button | same as hover, stays open |
+| `expanded` | `Expand` control | `Restore`, Escape | the widget as a full board area |
+
+Rules that are easy to break:
+
+- Hover never mutates. A provider call on hover must be a read.
+- Opening is delayed and closing has a grace period, so crossing a widget does
+  not flash it open.
+- Once opened, a widget body stays mounted while it collapses — scroll position,
+  selection and in-flight requests survive. Only never-opened heavy bodies are
+  deferred.
+- `prefers-reduced-motion: reduce` removes the animation, not the states.
+- Sibling widgets must not reflow when a neighbour expands: expansion is
+  overlay/absolute within the grid, or the widget's own height only.
+
+#### Board data, profiles, and the optional Docker module
+
+- Every widget reads through `@srelens/core` wrappers over registered
+  capabilities. No widget builds its own Jira/GitLab/Kubernetes request, and no
+  widget imports `@tauri-apps/api`.
+- Widget queries are keyed by profile id: `desktop` and web both see one profile
+  at a time, and a switch aborts in-flight widget calls, drops the selection and
+  swaps the layout. A stale row from another contour is a bug, not a loading
+  state.
+- Layout is stored per profile through `settingsStorage` (the same adapter as
+  every other preference), never in `localStorage`.
+- A widget with no configured source renders **unavailable** with the reason.
+  It never renders zeros as if the source answered.
+- **Docker is optional.** The module reads a local engine socket (Docker Desktop,
+  colima or a podman socket) and contributes a widget only when an engine
+  answers. No cluster agent is installed for it, and mutating actions require an
+  explicit confirmation — hover is read-only.
+
 
 #### Product surfaces
 
 | Surface | Role | Code |
 | --- | --- | --- |
-| **Primary** | Default on launch; mosaic My Work (summary / inbox / trace + maximize) | `HomeScreen`, `HomeMosaic`, `HomeWidget` |
+| **Primary** | Default on launch; the widget board (Summary / Trace / Jira / Git / CI / Kubernetes) | `HomeScreen`, `widgets/WidgetBoard`, `widgets/WidgetFrame` |
 | **Browse** | Full delivery list + selected trace | `DeliveriesScreen`, `DeliveryTraceScreen` |
 | **Contextual** | Runtime depth when needed | `KubernetesExplorerScreen` |
 
-`WorkspaceApp` defaults to `home`. Home and Deliveries keep the selected trace
-beside the list; runtime opens only as a contextual drill-down.
+`WorkspaceApp` defaults to `home`. The board and Deliveries keep the selected
+trace beside the list; runtime opens only as a contextual drill-down from a
+widget or from Deliveries.
 
 #### Naming
 
@@ -116,10 +164,11 @@ beside the list; runtime opens only as a contextual drill-down.
 
 #### What went wrong (2026-09 post-mortem)
 
-1. **Wrong hero screen** — a *provider* mosaic (orphan Jira/GitLab/Jenkins
-   panels with no unit-of-work narrative) shipped before Home/Trace polish.
-   Dated lesson: joined delivery widgets on Home are intentional; disconnected
-   provider walls are not.
+1. **Wrong hero screen** — a *disconnected* provider mosaic (orphan
+   Jira/GitLab/Jenkins panels with no unit-of-work narrative, no shared
+   selection) shipped before Home/Trace polish. Dated lesson: provider widgets
+   are fine **when they share one context and the Trace joins them**; a wall of
+   panels that each own their own query is not.
 2. **Inverted stages** — chrome effects before content density
    and Salience-like master-detail.
 3. **Double chrome** — panel headers repeated the screen hierarchy.
@@ -140,13 +189,16 @@ Tracked in [`TODO.md`](../TODO.md) — do not duplicate checklists here.
 #### Checks for workspace UI changes
 
 ```bash
-pnpm --filter @srelens/desktop test -- WorkspaceApp HomeScreen HomeMosaic HomeWidget DeliveriesScreen DeliveryTrace
+pnpm --filter @srelens/desktop test -- WorkspaceApp HomeScreen WidgetBoard WidgetFrame DeliveriesScreen DeliveryTrace
 pnpm --filter @srelens/desktop test -- qualityGates
 cargo test --workspace
 ```
 
 Drive the screen in the desktop app or Vite harness with stubs — green unit tests
-alone are not enough for layout work.
+alone are not enough for layout work. For the board specifically, check: hover
+opens once and settles, leaving closes it, pin survives a scroll, Escape
+unpins and returns focus, reduced motion still shows every state, and a profile
+switch never leaves the previous profile's rows on screen.
 
 ### Classic vs ui-next vs workspace (migration map)
 

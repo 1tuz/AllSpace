@@ -13,83 +13,88 @@ Direction: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#devops-workspace-shell-th
 - [x] Removed disconnected Dockview Layout prototype; it had no real selected-delivery source
 - [x] Rail materials, reduced-transparency, optional liquid glass
 
-## Next
+## Programme: unified DevOps board (2026-10)
 
-### Release truth
+The product target is one lightweight window: pick a working profile, then see
+Jira, Git, CI/CD, Kubernetes and (optionally) Docker as **compact widgets on one
+board**, each expanding on hover and staying open when pinned. A selection in
+one widget becomes the shared context for its neighbours, and Delivery Trace
+remains the join across Jira → Git → CI → artifact → Kubernetes.
+
+This supersedes one earlier rule: the board used to be a **fixed**
+Summary / Inbox / Trace mosaic with no composition. The fixed mosaic is now the
+**default layout**, not the only one — order and width are per profile, and the
+default needs no setup.
+
+Legend — state: `done` · `active` · `todo` · `blocked`.
+
+### P0 — the board exists and is truthful
+
+| # | Task | State | Depends | Done when | Verify |
+| --- | --- | --- | --- | --- | --- |
+| P0.1 | Actualise README, developer guide, contour notes, this file for the board target | done | — | Docs describe widgets, profile layout, optional Docker, and drop the fixed-mosaic prohibition | Read the diff; no doc claims a capability that does not exist |
+| P0.2 | Widget kernel: `compact` → `hover` → `pinned` → `expanded`, one state machine | todo | P0.1 | Hover expands after an intent delay and collapses on leave; click pins/unpins; Escape unpins; keyboard reaches every state; `prefers-reduced-motion` removes motion; a body that was opened stays mounted so scroll and in-flight work survive | `pnpm --filter @srelens/desktop test -- WidgetFrame`, manual hover sweep |
+| P0.3 | Board layout replacing the three-slot mosaic, default layout ready on first launch | todo | P0.2 | Widgets: Summary, Delivery Trace, Jira, Git, CI/CD, Kubernetes; no duplicate titles or frames; default layout needs zero configuration | `pnpm --filter @srelens/desktop test -- HomeScreen WidgetBoard`, screenshot pass |
+| P0.4 | Provider widget data through existing capabilities | todo | P0.3 | `@srelens/core` gains typed wrappers for `jira.searchIssues`, `gitlab.listMergeRequests`, `gitlab.listPipelines`, `bitbucket.listPullRequests`, `jenkins.listBuilds`; widgets never call `invoke` directly; each widget keeps loading / empty / unavailable / partial / error distinct | Unit tests over a stubbed transport per state |
+| P0.5 | Shared selection context | todo | P0.3 | Selecting a Jira issue, MR/PR, build or Kubernetes resource updates the board context and the Trace widget; nothing invents a missing link | Interaction test: row click → Trace anchor; missing provider → source error, not a false chain |
+| P0.6 | Per-profile layout persistence and reordering | todo | P0.3 | Layout keyed by profile id, saved through `settingsStorage`; move and resize without drag-only affordances; unknown ids fall back to the default layout | `layout.test.ts` (round-trip, unknown ids, per-profile isolation) |
+| P0.7 | Profile switch isolation | todo | P0.6 | Switching profile clears selection, cancels in-flight widget calls, partitions caches by profile, swaps layout, and never renders the previous profile's data | Interaction test: switch with an open widget → no cross-contour rows |
+| P0.8 | CI coverage for board interaction | todo | P0.7 | Hover, pin, collapse, Escape and profile switch run in the `frontend` job; heavy/visual passes stay off the required path but run nightly | Green `CI` on the pushed commit; `Nightly` workflow dispatched |
+
+### P1 — depth, profiles as a product, optional Docker
+
+| # | Task | State | Depends | Done when | Verify |
+| --- | --- | --- | --- | --- | --- |
+| P1.1 | Profile CRUD: create, rename, duplicate, delete | todo | P0.7 | The UI can do all four; deleting a profile also clears its stored credentials, layout and selection; deleting the active profile selects a remaining one | Component test + Rust test for the delete capability |
+| P1.2 | `devops.profiles.delete` capability | todo | P1.1 | Registered read/write-annotated, catalog regenerated, e2e case added, credentials for that profile dropped | `cargo test -p srelens-devops-profiles`, catalog sync test |
+| P1.3 | Widget deep-links into the Kubernetes explorer | todo | P0.5 | Kubernetes widget opens namespaced resources, logs, YAML, events, shell, port-forward and Helm in `KubernetesExplorerScreen` with the same context and profile-scoped kubeconfig | Handoff test + manual drill |
+| P1.4 | Docker read-only module | todo | P0.4 | Existing local containers, images and Compose projects are listed from the local engine socket (Docker Desktop, colima, podman socket) with no agent installed and no mutating action on hover; an absent engine renders **unavailable**, never an empty list | Rust unit tests over a fake socket; widget state test |
+| P1.5 | Docker actions behind confirmation | todo | P1.4 | Start/stop/restart only after explicit confirmation, capability annotated `requires_confirm`, never triggered by hover | Rust gating test + UI confirm test |
+| P1.6 | Board performance budget | todo | P0.7 | Hidden widgets stop polling; visible ones refresh on interval/event; startup time, memory and bundle delta measured and recorded; no new dependency without a stated reason | Perf script output in the PR/commit note |
+| P1.7 | Theme and density parity in the board | todo | P0.3 | Light / dark / system all verified on the board; no translucent surface behind dense data; edge-to-edge rule holds | Screenshot pass per theme |
+
+### P2 — Kubernetes IDE inside the workspace
+
+| # | Task | State | Depends | Done when | Verify |
+| --- | --- | --- | --- | --- | --- |
+| P2.1 | Workspace-native explorer | blocked | P1.3 | Resource browser, YAML editor, logs, terminals, Helm and metrics are reachable inside the workspace without opening classic `App.tsx`; classic stays the escape hatch until parity is checked | Side-by-side checklist vs classic + manual drill |
+| P2.2 | Drop `AppGate` `srelens.productSurface` | blocked | P2.1 | One product surface; classic IDE reachable only while P2.1 parity is unproven | Boot matrix test |
+| P2.3 | Visual regression snapshots | todo | P0.8 | Board states captured from the real app in CI artifacts; a broken layout fails a nightly run, not a human's eye | Nightly artifact review |
+| P2.4 | Incidents / Drill | blocked | Incident feed | Object-scoped incident feed exists before `DrillCard` is wired | Kit test + feed contract |
+
+### Release truth (unchanged, still open)
 
 - [x] Fix `WorkspaceSidebar.test.tsx` callback typings; `pnpm --filter @srelens/desktop typecheck` passes.
 - [ ] Build and install a fresh macOS app after the workspace changes. Verify the installed app has no Demo mode, fixture copy, or stale Dockview chrome.
-- [ ] Configure the AppFarm GitLab project filter in the active profile, then verify My Work and Deliveries with live data.
+- [ ] Configure the AppFarm GitLab project filter in the active profile, then verify the board, My Work and Deliveries with live data (corporate VPN).
 - [x] When no delivery rows arrive, render **source unavailable** instead of **partial results**; keep partial only when at least one source supplied usable rows.
 
-### Vitrina
+### Done before the board
 
-- [x] Removed the disconnected Layout prototype from navigation and routing
-- [x] Replace developer-only copy in Kubernetes Explorer and Settings with task-oriented guidance; keep operational detail behind help/disclosure.
-- [x] Default route stays My Work
-
-### Primary UX
-
-- [x] Home summary strip (attention / review / building / delivered)
-- [x] Home widget mosaic (summary / inbox / trace) with Maximize / Restore
+- [x] Delivery-first shell (`apps/desktop/src/workspace/`) — no cluster-first root nav
+- [x] Home, Deliveries, Delivery Trace, Connections, First-run, Kubernetes explorer
+- [x] Provider-backed AppFarm + Komus; live trace + contour smoke (VPN, see CONTOURS)
+- [x] `devops.traceDelivery`, evidence/confidence, TTL cache, profile switch clears cache
+- [x] Provider crates (Jira, GitLab, Bitbucket, Jenkins) + vault credentials
+- [x] Command palette (⌘K); Delivery → Explore → runtime handoff
+- [x] Removed disconnected Dockview Layout prototype; it had no real selected-delivery source
+- [x] Rail materials, reduced-transparency, optional liquid glass
+- [x] Fixed Summary / My Work / Trace mosaic with Maximize / Restore (now the board's default layout)
 - [x] Home inline selection — row click fills Trace without leaving My Work
 - [x] Deliveries master-detail (live list + selected trace preview)
 - [x] Trace = joined view; providers as nodes + evidence, not orphan panels
-- [x] Single header per region (the duplicate panel frame was removed with Layout)
-- [x] Situation: label + colour on every row
-- [x] Removed unused `workspace/git` lane WIP and orphan exports
-### Content
-
 - [x] Partial trace when contour omits a provider (e.g. Komus without Jira)
 - [x] Live errors are explicit, never rendered as empty panels
-- [x] Removed the unwired Code panel and placeholder copy
 
-### Salience alignment
+### Polish (manual checks still open)
 
-- [x] Add a compact contextual top bar: active contour/profile, selected Delivery, and back navigation. Do not make the Kubernetes cluster global state.
-- [x] Keep the fixed Summary / My Work / Trace mosaic; do not add a generic dashboard composer. Improve the existing Delivery inspector with Overview, Evidence, and Runtime sections.
-- [x] Extend the existing command palette with Delivery-linked runtime resources and safe contextual actions.
-- [x] Represent Jira issues as Delivery rows and inspector sections. Add Confluence only as a linked Knowledge section in the Delivery inspector, not as a provider-first screen.
-
-### Polish
-
-- [x] Make Liquid Glass status truthful: native glass, vibrancy fallback, or disabled by reduced transparency. Keep glass on chrome, palette, and popovers; keep dense data surfaces opaque.
-- [x] Row density + contrast like prototype
 - [ ] Reduced transparency manual check (OS Accessibility → Display)
   - Reduce transparency ON/OFF × liquid glass on/off → rail opaque, no blur;
     native window not glassy when reduce is on (`syncNativeLiquidGlass` gates).
-  - Increased contrast (`prefers-contrast`): **deferred** — no CSS yet; not part of this checkbox.
-- [ ] Screenshot pass (human; `scripts/screenshot.mjs` is ui-next, not workspace):
-  Home, Deliveries (+ row → trace), Connections, K8s explorer, ⌘K palette.
+  - Increased contrast (`prefers-contrast`): **deferred** — no CSS yet.
+- [ ] Screenshot pass on the board (human): default layout, hover, pinned, expanded,
+  profile switch, ⌘K palette, Kubernetes drill-down.
   Boot: `srelens.design=classic` + `productSurface=workspace`, first-run done.
-
-### Kubernetes explorer (blocked)
-
-Native depth still missing; today `KubernetesExplorerScreen` embeds classic
-`ResourceBrowser` / `CustomResourceBrowser`. Until that embed is replaced, keep
-the classic IDE escape hatch.
-
-- [ ] Workspace-native explorer (no day-to-day need to open full classic `App.tsx`)
-- [ ] Then drop `AppGate` `srelens.productSurface` (`workspace` \| `classic`) —
-  delivery axis only when `srelens.design=classic`; not a ui-next parity item.
-  See [migration map](docs/DEVELOPMENT.md#classic-vs-ui-next-vs-workspace-migration-map).
-
-### Product: Incidents / Drill
-
-Not K8s IDE parity (classic never had a detail Drill tab). Kit has `DrillCard`
-(Signal→Diagnose→Act); needs an object-scoped incident feed before wiring.
-
-- [ ] Cluster/product incident feed → re-add `/incidents` to `INVESTIGATE` + `SCREENS`
-- [ ] Object-scoped **Drill** pane (`DrillCard`) when that feed exists
-
-### Live-only data
-
-- [x] Removed Demo mode, fixture routing, sample-data chrome, and demo first-run
-- [x] My Work and Deliveries query provider capabilities only
-- [x] Empty, partial, and failed provider results remain distinct UI states
-- [x] Removed disconnected placeholder panels and their fixture-only tests
-- [x] Contour visible on every screen (persistent contour switcher in rail)
-- [x] First-run / Connections: optional providers per contour
 
 ## Classic to ui-next gap (K8s IDE migration)
 

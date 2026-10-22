@@ -3,6 +3,14 @@
 Public endpoints and sibling credential paths for this fork. **Secrets are never
 committed here** — they live in sibling repos / the desktop vault.
 
+A contour is one **working profile** in the product: its connections, kubeconfig
+contexts and namespaces, project filters, widget layout and refresh settings.
+AppFarm and Komus are seeded examples, not the only allowed profiles — any
+profile can be created, renamed, duplicated or deleted, and switching one must
+isolate its data, caches, in-flight requests and Kubernetes contexts from the
+other. Layout is stored per profile; switching never inherits the previous
+contour's board.
+
 TLS note: profile `tls.allowInsecure` / `caBundlePath`. AppFarm/Komus
 presets set `allowInsecure: true` explicitly for private CA. Default profiles use
 system trust. Prefer a CA PEM path when available.

@@ -1,4 +1,4 @@
-# srelens extension architecture
+# AllSpace extension architecture
 
 Status: native-only direction, updated 2026-09-14. This supersedes the earlier
 proposal for a Freelens/OpenLens compatibility runtime. The delivery plan and its
@@ -6,7 +6,7 @@ decisions are tracked in [#163](https://github.com/srelens/srelens/issues/163).
 
 ## Supported contract
 
-Extensions target the versioned srelens manifest and capability broker in
+Extensions target the versioned AllSpace manifest and capability broker in
 `crates/plugin-host`. The host declares a set of supported extension API versions and
 serves each manifest under the highest one its `srelensApiVersion` range matches; the
 versioning and compatibility rules are in the
@@ -18,7 +18,7 @@ Native Flux and Argo CD manifests are the reference integrations.
 The application installs declarative manifests from the catalog, where official
 releases are signature-verified, or as local manifests after an explicit
 permission review. There is no developer mode. IDs under `org.srelens.` are
-reserved for signed srelens releases. See [Extensions](../EXTENSIONS.md) for
+reserved for signed AllSpace releases. See [Extensions](../EXTENSIONS.md) for
 installation, examples, supported fields and current limitations. The executable
 SDK, third-party publisher signing, key rotation and revocation described below
 are future work, not shipped capabilities.
@@ -63,6 +63,6 @@ per-user inventory and lifecycle isolation are implemented.
    revocation. Unsigned local manifests stay outside reserved namespaces.
 
 There is no Lens API shim, Node compatibility host or third-party package runtime.
-Extensions must target the srelens contract. Retired archive inventory entries are
+Extensions must target the AllSpace contract. Retired archive inventory entries are
 excluded on read and removed on the next successful inventory save, preserving
 native installations and settings.

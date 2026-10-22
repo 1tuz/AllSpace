@@ -344,10 +344,10 @@ pub fn render_catalog() -> String {
     let mut out = String::from(
         "<!-- GENERATED FILE — do not edit by hand.\n     \
          Regenerate with: UPDATE_CATALOG=1 cargo test -p srelens-registry -->\n\n\
-         # srelens MCP catalog\n\n\
+         # AllSpace MCP catalog\n\n\
          Everything this server exposes over MCP, generated from the live \
          registry so it cannot drift. Written for someone wiring an agent to \
-         srelens; the narrative reference is [MCP.md](MCP.md).\n\n",
+         AllSpace; the narrative reference is [MCP.md](MCP.md).\n\n",
     );
     out.push_str(&render_tools(&crate::build_registry()));
     out.push_str(&render_prompts());

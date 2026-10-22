@@ -1,14 +1,14 @@
-# MCP: wiring an agent to srelens
+# MCP: wiring an agent to AllSpace
 
 ## What this is
 
-srelens exposes everything it can do to a Kubernetes cluster over the [Model
+AllSpace exposes everything it can do to a Kubernetes cluster over the [Model
 Context Protocol](https://modelcontextprotocol.io) — the same capabilities
 the desktop UI uses, reachable by an AI agent as MCP tools, prompts and
 resources, using your locally authenticated cluster contexts. This file is
 for whoever is wiring an agent to that server: what to connect to, what the
 safety model actually gates, and two worked examples of an agent driving it.
-For the desktop app itself — installing srelens, browsing clusters by hand,
+For the desktop app itself — installing AllSpace, browsing clusters by hand,
 the Settings panels — see [USAGE.md](USAGE.md). For the exhaustive,
 generated list of every tool, prompt and resource template, see
 [mcp-catalog.md](mcp-catalog.md); this file links to it rather than
@@ -16,7 +16,7 @@ restating it, so the two cannot drift apart.
 
 ## Transports
 
-srelens speaks MCP over two transports:
+AllSpace speaks MCP over two transports:
 
 - **stdio** — the client spawns `srelens --mcp-stdio` itself and talks
   newline-delimited JSON-RPC over its stdin/stdout. The client already holds
@@ -30,7 +30,7 @@ srelens speaks MCP over two transports:
     app, runs the HTTP server *inside* the GUI's own process, sharing its
     authenticated cluster connections and, crucially, its confirm dialog: a
     gated tool call over this connection pops the same in-app approval
-    prompt a click in the UI would, in whichever srelens window is open.
+    prompt a click in the UI would, in whichever AllSpace window is open.
     This is the mode with a human in the loop.
   - **`srelens --mcp-http <addr>`** spawns a **separate, headless** process.
     It does not attach to a running GUI — if the GUI's own toggle already
@@ -42,7 +42,7 @@ srelens speaks MCP over two transports:
     with **no human approval at any point** — this flag combination is for
     deliberate unattended automation, not a way to reach a human reviewer.
 
-Pick stdio for a client that spawns srelens itself — the common case. Reach
+Pick stdio for a client that spawns AllSpace itself — the common case. Reach
 for the Settings → MCP toggle only if you need calls to land in an
 already-running GUI session, so a human watching the app can see and approve
 confirm dialogs as they happen, or so the agent shares cluster contexts the
@@ -74,11 +74,11 @@ exactly that.
   characters. There is deliberately **no `--mcp-token` flag**: command-line
   arguments are visible to every account on the machine via `ps`, which
   would hand the token to exactly the local processes it exists to keep out.
-  Without the variable, srelens reads a token from the store, or generates
+  Without the variable, AllSpace reads a token from the store, or generates
   one and prints it to stderr. HTTP only — stdio takes no token at all.
 - **Destructive tools prompt in the app.** The MCP call blocks until you
   approve or deny the dialog that pops up. Letting it time out, dismissing
-  it, or having no srelens window open at all count as **deny**. Confirmation
+  it, or having no AllSpace window open at all count as **deny**. Confirmation
   requests from concurrent calls queue rather than colliding.
 - **Headless use** (`--mcp-stdio` / `--mcp-http` with no GUI to show a
   dialog) needs an explicit opt-in instead: a process-level flag *and*
@@ -247,7 +247,7 @@ confirm gate twice — once per mutating call.
 
 Now the denial path, which is the part worth being deliberate about. Say
 the agent instead calls `k8s.rolloutRestart` and you **deny** the dialog (or
-it times out, or no srelens window is open to show it at all). The call
+it times out, or no AllSpace window is open to show it at all). The call
 does not crash the connection, and the server does not raise a transport or
 protocol-level error — the agent gets back a normal tool result whose
 content says the call was denied and why (e.g. that confirmation was
@@ -259,7 +259,7 @@ the denial as an exception that aborts the whole interaction.
 
 ## Prompts
 
-srelens ships a set of built-in MCP **prompts** — ready-made diagnostic flows
+AllSpace ships a set of built-in MCP **prompts** — ready-made diagnostic flows
 for an agent to run instead of improvising one, covering common failure
 modes such as a crash-looping pod or a service with no endpoints. The full
 list, with each one's description and arguments, is in
@@ -323,7 +323,7 @@ audited exactly like any other MCP call.
 
 ## Resources
 
-Alongside tools and prompts, srelens exposes cluster state as MCP
+Alongside tools and prompts, AllSpace exposes cluster state as MCP
 **resources** — addressable under `k8s://` URIs that a client can list,
 read, and subscribe to for change notifications (on either transport — see
 the subscription section below for how HTTP clients open the push stream).
@@ -333,7 +333,7 @@ fixed URIs and parameterised URI shapes are listed in
 what they mean and how to use them.
 
 A fixed URI addresses something that isn't a single cluster object — the
-list of contexts srelens can connect to, or a dump of the whole tool/prompt/
+list of contexts AllSpace can connect to, or a dump of the whole tool/prompt/
 resource catalog for a client that wants to introspect the server in one
 read. Everything else addresses a single object by context, namespace, kind
 and name, with an optional trailing segment for that object's events or

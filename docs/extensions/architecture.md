@@ -1,6 +1,6 @@
 # Architecture
 
-How srelens hosts apps today. The decisions behind this design, and the parts still
+How AllSpace hosts apps today. The decisions behind this design, and the parts still
 ahead, are in the [plugin ADR](../design/plugin-architecture.md) and
 [#163](https://github.com/srelens/srelens/issues/163).
 

@@ -1,6 +1,6 @@
 # Permissions
 
-An app never inherits srelens's access. It declares the host capabilities it binds,
+An app never inherits AllSpace's access. It declares the host capabilities it binds,
 the user grants them at installation, and every call still runs under the selected
 cluster's RBAC.
 

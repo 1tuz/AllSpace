@@ -1,8 +1,8 @@
 # Extensions
 
-srelens **apps** (extensions) add pages, dashboards, resource details and actions for
-Kubernetes projects such as Flux and Argo CD, without changing srelens itself. An app
-is a versioned JSON manifest. srelens renders everything it contributes with its own
+AllSpace **apps** (extensions) add pages, dashboards, resource details and actions for
+Kubernetes projects such as Flux and Argo CD, without changing AllSpace itself. An app
+is a versioned JSON manifest. AllSpace renders everything it contributes with its own
 components and brokers every cluster call it makes.
 
 Tracking: [#163](https://github.com/srelens/srelens/issues/163). Architecture decisions:

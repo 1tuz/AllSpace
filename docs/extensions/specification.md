@@ -1,6 +1,6 @@
 # Extension API specification
 
-This is the normative contract between srelens and the apps (extensions) it hosts:
+This is the normative contract between AllSpace and the apps (extensions) it hosts:
 how the extension API is versioned, what may change within a version, and the rules
 every manifest follows. The other pages in this directory describe how things work
 today; where they and this page disagree, this page is the intent and the other page
@@ -12,7 +12,7 @@ Tracking: [#163](https://github.com/srelens/srelens/issues/163). Field reference
 ## Terms
 
 - **Extension API version**: the version of this contract, in SemVer form
-  (`0.1.0`). It is independent of the srelens app version and of each app's own
+  (`0.1.0`). It is independent of the AllSpace app version and of each app's own
   `version`.
 - **Supported set**: the API versions a host implements, listed oldest first in
   `SUPPORTED_API_VERSIONS` (`crates/plugin-host/src/manifest.rs`). The catalog
@@ -42,11 +42,11 @@ Tracking: [#163](https://github.com/srelens/srelens/issues/163). Field reference
    which manifests validate. From 1.0: MAJOR for breaking changes, MINOR for
    additive ones, PATCH for fixes.
 5. **Keeping old versions.** Adding a version to the supported set never removes an
-   older one. An API version stays supported for **at least two srelens minor
+   older one. An API version stays supported for **at least two AllSpace minor
    releases** after the release that ships its successor. For example, if API 0.2
-   ships in srelens 0.10, API 0.1 remains supported through at least srelens 0.12.
+   ships in AllSpace 0.10, API 0.1 remains supported through at least AllSpace 0.12.
    Retiring a version is announced in the [API changelog](#api-changelog) at least
-   one srelens release before it happens.
+   one AllSpace release before it happens.
 6. **API 1.0.** The API is frozen as 1.0 when the cert-manager declarative milestone
    ([#582](https://github.com/srelens/srelens/issues/582)) passes. After that, the 1.x
    line only grows additively.
@@ -101,7 +101,7 @@ field, must add a check keyed on the negotiated API version in the same change.
   validation errors exist ([#533](https://github.com/srelens/srelens/issues/533)),
   using it produces a warning.
 - It is removed only in a new API line, and only after the retirement window in
-  [Versioning](#versioning): at least two srelens minor releases, and never before its
+  [Versioning](#versioning): at least two AllSpace minor releases, and never before its
   replacement has shipped.
 
 Deprecated or planned:
@@ -194,7 +194,7 @@ list, and the [developer harness](testing.md#developer-harness) prints one per l
 - A catalog release's `version` and `srelensApiVersion` must equal the manifest's.
   Its SHA-256 pins the exact bytes, so changing a published manifest means publishing
   a new version.
-- The app version, the extension API version and the srelens version are unrelated.
+- The app version, the extension API version and the AllSpace version are unrelated.
   Update and downgrade handling is planned in
   [#563](https://github.com/srelens/srelens/issues/563).
 

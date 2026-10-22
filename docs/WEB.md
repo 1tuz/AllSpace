@@ -1,23 +1,29 @@
-# Running srelens as a web app
+# Running AllSpace as a web app
 
-srelens can run as a multi-user web server in a single Docker container, instead
+AllSpace can run as a multi-user web server in a single Docker container, instead
 of (or alongside) the desktop app. A team deploys one container; each person
 signs in with their identity provider (or a local dev login while trying it
-out), uploads their own kubeconfig, and gets the full srelens experience —
+out), uploads their own kubeconfig, and uses the shared Kubernetes surface —
 resource browsing, watches, logs, in-pod exec terminals, helm,
 and port-forwarding — in the browser. Nothing here changes the desktop app,
 which remains the primary product.
 
 ## Quick start (trial)
 
+Build the image from this repository; no AllSpace registry image is published:
+
 ```sh
+git clone https://github.com/1tuz/AllSpace.git
+cd AllSpace
+docker build -t allspace:local .
+
 docker run \
   -v srelens-data:/data \
   --tmpfs /data/runtime:mode=0700,uid=10001,gid=10001 \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   -e SRELENS_DEV_LOGIN=you@example.com \
   -e SRELENS_MASTER_KEY=$(openssl rand -hex 32) \
-  ghcr.io/srelens/srelens
+  allspace:local
 ```
 
 `SRELENS_MASTER_KEY` is required — it seals stored kubeconfigs at rest. The
@@ -37,19 +43,20 @@ anything reachable by anyone else.
 Use the `docker-compose.yml` at the repo root as a starting point:
 
 ```sh
-git clone https://github.com/srelens/srelens.git
-cd srelens
-SRELENS_PUBLIC_URL=https://srelens.example.com \
+git clone https://github.com/1tuz/AllSpace.git
+cd AllSpace
+SRELENS_PUBLIC_URL=https://allspace.example.com \
 SRELENS_OIDC_ISSUER=https://your-idp.example.com \
 SRELENS_OIDC_CLIENT_ID=... \
 SRELENS_OIDC_CLIENT_SECRET=... \
 SRELENS_OIDC_ALLOWED_DOMAINS=example.com \
 SRELENS_MASTER_KEY=$(openssl rand -hex 32) \
-docker compose up -d
+docker compose up --build -d
 ```
 
-This runs `ghcr.io/srelens/srelens` (or `docker compose build` to build the
-image locally), publishes `:8080`, and persists `/data` on a named volume.
+This builds AllSpace from the checkout as `allspace:local`, publishes `:8080`,
+and persists `/data` on a named volume. The image tag is local; this command
+does not publish an image to a registry.
 Put a TLS-terminating reverse proxy in front of it (nginx, Caddy, an ingress
 controller, a cloud load balancer, …) — see below for why this matters.
 
@@ -78,7 +85,7 @@ tracked as future work.
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `SRELENS_PUBLIC_URL` | Recommended | The externally reachable URL of the deployment, e.g. `https://srelens.example.com` (no trailing slash needed — it's trimmed). Defaults to `http://127.0.0.1:8080`. Session cookies are only marked `Secure` when this starts with `https://`, and it's used to build the OIDC redirect URI. |
+| `SRELENS_PUBLIC_URL` | Recommended | The externally reachable URL of the deployment, e.g. `https://allspace.example.com` (no trailing slash needed — it's trimmed). Defaults to `http://127.0.0.1:8080`. Session cookies are only marked `Secure` when this starts with `https://`, and it's used to build the OIDC redirect URI. |
 | `SRELENS_OIDC_ISSUER` | With OIDC | The identity provider's issuer URL. Must be set together with `SRELENS_OIDC_CLIENT_ID` and `SRELENS_OIDC_CLIENT_SECRET` — all three or none. |
 | `SRELENS_OIDC_CLIENT_ID` | With OIDC | OAuth client id registered with your IdP. |
 | `SRELENS_OIDC_CLIENT_SECRET` | With OIDC | OAuth client secret. Never logged (redacted in debug output). |
@@ -100,7 +107,7 @@ must be configured — the server refuses to start unauthenticated.
 - **Never set `SRELENS_DEV_LOGIN` on a public or otherwise non-loopback
   deployment.** It mints a session for that email with no identity check at
   all — anyone who can reach the container becomes that user. It exists for
-  trying srelens out locally, nothing else.
+  trying AllSpace out locally, nothing else.
 - **Set a stable `SRELENS_MASTER_KEY` (required).** Every stored kubeconfig and
   OIDC token is sealed at rest under this key, and server mode won't start
   without it. It is read only from the environment and never written to disk, so
@@ -133,31 +140,31 @@ delete and re-add it under the new name instead.
 Some Kubernetes clusters put their API server behind an OIDC identity provider,
 and normally reach it through a `kubelogin` / `oidc-login` exec plugin. That
 plugin can't run inside the headless container, which is why such clusters
-otherwise fail to connect. Instead, srelens runs the OIDC authorization-code +
+otherwise fail to connect. Instead, AllSpace runs the OIDC authorization-code +
 PKCE flow **in your browser** and uses the resulting `id_token` as the Bearer
 for API calls — the same approach Headlamp takes — so no exec plugin is needed.
 
 **This is separate from the app sign-in.** The `SRELENS_OIDC_*` variables above
-authenticate you *to srelens*; cluster OIDC authenticates you *to a Kubernetes
+authenticate you *to AllSpace*; cluster OIDC authenticates you *to a Kubernetes
 API server*. They can use entirely different identity providers.
 
 You opt a cluster into managed sign-in through **Settings → Contexts → Add
 cluster**: fill in the API server URL, a CA certificate (or check *skip TLS
 verify*), and the OIDC issuer + client id (+ optional client secret and extra
-scopes). srelens synthesizes and stores the kubeconfig, stamping it with an
+scopes). AllSpace synthesizes and stores the kubeconfig, stamping it with an
 internal marker so *only* these clusters use the managed browser flow.
 
 **Clusters from an existing kubeconfig are left alone.** A context that already
 authenticates with its own `kubectl` exec plugin — `kubelogin`/`oidc-login`,
 `aws eks get-token`, `gke-gcloud-auth-plugin`, etc. — keeps using that plugin
-natively; srelens does **not** take it over, so on desktop your working setup is
+natively; AllSpace does **not** take it over, so on desktop your working setup is
 untouched. (On the web container exec plugins can't run at all — so to use such
 a cluster in web mode, re-add it via **Add cluster** to get the managed flow.)
 
-**When you use an OIDC cluster that has no valid token, srelens prompts
+**When you use an OIDC cluster that has no valid token, AllSpace prompts
 "Sign in to `<cluster>`"** (from any view or stream). Clicking it runs the
 sign-in flow and returns you to the app. **Settings → Contexts** lists your
-OIDC clusters with their sign-in status and a per-cluster **Sign out**. srelens
+OIDC clusters with their sign-in status and a per-cluster **Sign out**. AllSpace
 refreshes the token server-side while it can, and re-prompts when it can't.
 
 ### Operator requirement: register the redirect URI
@@ -168,7 +175,7 @@ Each OIDC cluster's identity-provider client **must allow the redirect URI**
 ${SRELENS_PUBLIC_URL}/auth/cluster/callback
 ```
 
-(the srelens analogue of kubelogin's `http://localhost:8000` callback). Use a
+(the AllSpace analogue of kubelogin's `http://localhost:8000` callback). Use a
 **public client with PKCE** — no client secret is required (a confidential
 secret is supported but optional). `SRELENS_PUBLIC_URL` must be set correctly
 for this URL to be right.
@@ -202,9 +209,9 @@ URI, pin a fixed port with `SRELENS_CLUSTER_LOGIN_PORT` and register
 ## Web-mode behavior
 
 - **Terminal:** web users get an RBAC-scoped **in-pod exec** terminal — the
-  same model Headlamp uses: srelens opens an interactive session *inside a
+  same model Headlamp uses: AllSpace opens an interactive session *inside a
   pod/container* over the Kubernetes API, authorized by the user's own cluster
-  credentials. The **host shell** (`bash` inside the srelens container, the
+  credentials. The **host shell** (`bash` inside the AllSpace container, the
   `kubectl · <ctx>` tab on desktop) is **desktop-only** and is refused on the
   web surface: on a shared multi-user server a container-host shell runs as the
   single shared UID and would let any user read every other user's materialized
@@ -241,12 +248,13 @@ URI, pin a fixed port with `SRELENS_CLUSTER_LOGIN_PORT` and register
 
 ## Extending the image with cloud CLIs
 
-The shipped image bundles `kubectl` and `helm` but not cloud-provider CLIs.
+The locally built image bundles `kubectl` and `helm` but not cloud-provider CLIs.
 If your kubeconfigs use an exec plugin (`aws eks get-token`, `gcloud
-container clusters get-credentials`-style auth, etc.), extend the image:
+container clusters get-credentials`-style auth, etc.), build the base image
+from the Quick start first, then extend it:
 
 ```dockerfile
-FROM ghcr.io/srelens/srelens
+FROM allspace:local
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \

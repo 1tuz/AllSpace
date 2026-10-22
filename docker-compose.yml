@@ -1,7 +1,7 @@
 services:
   srelens:
-    image: ghcr.io/srelens/srelens:latest
-    # Or build locally: `docker compose build`
+    image: allspace:local
+    # Build this checkout: `docker compose up --build`
     build: .
     ports:
       - "8080:8080"

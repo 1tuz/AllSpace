@@ -1,5 +1,11 @@
 # Performance baselines
 
+> **These are upstream historical baselines.** Every measurement below was taken
+> against upstream srelens releases, not against AllSpace. AllSpace has not been
+> benchmarked; no AllSpace build was measured for this page. The numbers and
+> release identifiers are preserved as recorded, so the upstream claims stay
+> checkable.
+
 A stated reason for building srelens on Tauri rather than Electron is that it
 should be smaller and lighter. This page publishes what that is actually worth,
 and exactly how it was measured, so the claim can be checked rather than taken

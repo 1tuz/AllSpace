@@ -150,7 +150,7 @@ alone are not enough for layout work.
 
 ### Classic vs ui-next vs workspace (migration map)
 
-srelens currently boots **one of two designs**, and the classic design path then
+AllSpace currently boots **one of two designs**, and the classic design path then
 picks a **product surface**. Testers and contributors mix these up; they are
 independent axes.
 
@@ -233,7 +233,7 @@ safe way back to a full classic surface — do not remove it early.
 
 ---
 
-srelens builds **two hosts on one shared core**. The desktop app (Tauri) and the
+AllSpace builds **two hosts on one shared core**. The desktop app (Tauri) and the
 headless web server (axum) both assemble the *same* capability registry and drive
 the *same* streaming cores; they differ only in how they reach the user — Tauri
 commands and events versus HTTP and WebSocket frames.
@@ -374,7 +374,7 @@ See [MCP.md](MCP.md) for the full security model.
 
 ## Web mode
 
-srelens also runs as a multi-user web server in a container — same registry, same
+AllSpace also runs as a multi-user web server in a container — same registry, same
 streams, different host. `crates/server` owns it, and it ships as its own binary.
 
 ```sh

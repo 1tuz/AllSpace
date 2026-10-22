@@ -1,6 +1,6 @@
 # UI contributions
 
-Everything an app shows is rendered by srelens with its own components, in both the new
+Everything an app shows is rendered by AllSpace with its own components, in both the new
 and classic designs. User-facing extension management is named **Apps**; internal
 `extensions.*` capability IDs, manifest IDs and routes keep their names. Field
 reference: [manifest.md](manifest.md#contributions).

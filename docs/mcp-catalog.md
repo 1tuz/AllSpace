@@ -1,9 +1,9 @@
 <!-- GENERATED FILE — do not edit by hand.
      Regenerate with: UPDATE_CATALOG=1 cargo test -p srelens-registry -->
 
-# srelens MCP catalog
+# AllSpace MCP catalog
 
-Everything this server exposes over MCP, generated from the live registry so it cannot drift. Written for someone wiring an agent to srelens; the narrative reference is [MCP.md](MCP.md).
+Everything this server exposes over MCP, generated from the live registry so it cannot drift. Written for someone wiring an agent to AllSpace; the narrative reference is [MCP.md](MCP.md).
 
 ## Tools (132)
 

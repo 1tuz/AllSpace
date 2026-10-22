@@ -17,7 +17,7 @@ model is tracked in [#579](https://github.com/srelens/srelens/issues/579).
   saw, and the backend's conditional PATCH rejects the write if the resource changed
   ([capabilities.md](capabilities.md#host-gitops-actions)).
 - **Official identities are reserved.** IDs under `org.srelens.` install only with the
-  srelens publisher signature, so a pasted manifest cannot take an official app's ID
+  AllSpace publisher signature, so a pasted manifest cannot take an official app's ID
   or logo ([distribution.md](distribution.md#signed-official-releases)).
 - **One bad app is contained.** An app that fails re-verification is quarantined on
   its own ([architecture.md](architecture.md#quarantine)).

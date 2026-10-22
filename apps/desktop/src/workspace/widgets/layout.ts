@@ -20,6 +20,7 @@ export const DEFAULT_BOARD_LAYOUT: WidgetSlot[] = [
   { id: "git", span: 1 },
   { id: "ci", span: 1 },
   { id: "kubernetes", span: 1 },
+  { id: "docker", span: 1 },
   { id: "trace", span: 2 },
 ];
 

@@ -6,6 +6,9 @@ const devopsMyWork = vi.hoisted(() => vi.fn());
 const devopsTraceDelivery = vi.hoisted(() => vi.fn());
 const listContexts = vi.hoisted(() => vi.fn());
 const podStatusCounts = vi.hoisted(() => vi.fn());
+const dockerEngineStatus = vi.hoisted(() => vi.fn());
+const listDockerContainers = vi.hoisted(() => vi.fn());
+const listDockerImages = vi.hoisted(() => vi.fn());
 
 vi.mock("@srelens/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@srelens/core")>()),
@@ -13,6 +16,9 @@ vi.mock("@srelens/core", async (importOriginal) => ({
   devopsTraceDelivery,
   listContexts,
   podStatusCounts,
+  dockerEngineStatus,
+  listDockerContainers,
+  listDockerImages,
 }));
 
 import { HomeScreen } from "./HomeScreen";
@@ -41,6 +47,10 @@ beforeEach(() => {
   podStatusCounts.mockResolvedValue({
     counts: { pending: 0, running: 4, succeeded: 0, failed: 0, unknown: 0, other: 0 },
   });
+  dockerEngineStatus.mockReset();
+  dockerEngineStatus.mockResolvedValue({ available: false, endpoint: null, error: "no socket" });
+  listDockerContainers.mockReset();
+  listDockerImages.mockReset();
 });
 
 const appFarm = { id: "appfarm", label: "AppFarm", providers: [] };

@@ -48,6 +48,7 @@ export * from "./lib/kinds";
 export * from "./lib/kubectlMapper";
 export * from "./lib/llm";
 export * from "./lib/devops";
+export * from "./lib/docker";
 export * from "./lib/changeDiff";
 export * from "./lib/logBuffer";
 export * from "./lib/logConnectionStatus";

@@ -54,6 +54,7 @@ describe("board layout", () => {
       "git",
       "ci",
       "kubernetes",
+      "docker",
     ]);
     expect(normalized[1].span).toBe(1);
     expect(normalized[0].span).toBe(2);

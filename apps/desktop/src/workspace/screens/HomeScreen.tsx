@@ -12,6 +12,7 @@ import { JiraWidget } from "../widgets/JiraWidget";
 import { GitWidget } from "../widgets/GitWidget";
 import { CiWidget } from "../widgets/CiWidget";
 import { KubernetesWidget } from "../widgets/KubernetesWidget";
+import { DockerWidget } from "../widgets/DockerWidget";
 import { TraceSummary } from "../widgets/TraceWidget";
 import {
   loadBoardLayout,
@@ -266,6 +267,28 @@ export function HomeScreen({
           selection={selection}
           onSelect={choose}
           onOpenExplorer={onExploreRuntime}
+          variant="detail"
+        />
+      ),
+    },
+    {
+      id: "docker",
+      title: "Docker",
+      summary: (
+        <DockerWidget
+          profile={profile}
+          profileId={profileId}
+          selection={selection}
+          onSelect={choose}
+          variant="compact"
+        />
+      ),
+      detail: (
+        <DockerWidget
+          profile={profile}
+          profileId={profileId}
+          selection={selection}
+          onSelect={choose}
           variant="detail"
         />
       ),

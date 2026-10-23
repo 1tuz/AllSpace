@@ -17,13 +17,23 @@ use std::time::Duration;
 
 /// How long a single engine read may take. An engine that accepts the socket
 /// and then stalls must fail the widget rather than hold the board.
-const IO_TIMEOUT: Duration = Duration::from_secs(5);
+///
+/// Generous on purpose: the first read after an idle spell lands while Docker
+/// Desktop, colima or OrbStack is still waking its VM, and a five-second leash
+/// turned that ordinary cold start into a visible failure.
+const IO_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineError {
     /// Nothing answered: no socket, or the connect was refused. This is the
     /// "no Docker here" case, not a broken engine.
     Unavailable(String),
+    /// The socket was accepted and then went quiet for the whole leash. On
+    /// macOS a read timeout surfaces as `EAGAIN`, which is why this is a
+    /// variant of its own rather than a transport string: "connection failed:
+    /// Resource temporarily unavailable" describes a timeout as a fault and
+    /// leaves the reader nothing to do about it.
+    Timeout(Duration),
     Transport(String),
     Status(u16, String),
     InvalidResponse(String),
@@ -33,6 +43,12 @@ impl std::fmt::Display for EngineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EngineError::Unavailable(reason) => write!(f, "no Docker engine answered ({reason})"),
+            EngineError::Timeout(leash) => write!(
+                f,
+                "the Docker engine did not answer within {}s — a cold engine may still be starting, \
+                 so try again",
+                leash.as_secs()
+            ),
             EngineError::Transport(reason) => write!(f, "the Docker engine connection failed: {reason}"),
             EngineError::Status(status, body) => {
                 write!(f, "the Docker engine returned HTTP {status}: {}", body.trim())
@@ -59,6 +75,9 @@ pub trait DockerEngine: Send + Sync {
 
 pub struct UnixEngine {
     socket: PathBuf,
+    /// How long one read may take. The default is `IO_TIMEOUT`; tests shorten
+    /// it so a stalled engine is observable in milliseconds.
+    leash: Duration,
     /// Docker's own API version, read once per engine handle. Engines disagree
     /// about it, and asking for a version the engine does not serve is a 400.
     version: Mutex<Option<String>>,
@@ -66,8 +85,13 @@ pub struct UnixEngine {
 
 impl UnixEngine {
     pub fn new(socket: PathBuf) -> Self {
+        Self::with_timeout(socket, IO_TIMEOUT)
+    }
+
+    pub fn with_timeout(socket: PathBuf, leash: Duration) -> Self {
         Self {
             socket,
+            leash,
             version: Mutex::new(None),
         }
     }
@@ -93,17 +117,27 @@ impl UnixEngine {
         let mut stream = UnixStream::connect(&self.socket).map_err(|error| {
             EngineError::Unavailable(format!("{}: {error}", self.socket.display()))
         })?;
-        let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
-        let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
+        let _ = stream.set_read_timeout(Some(self.leash));
+        let _ = stream.set_write_timeout(Some(self.leash));
         let request = format!("GET {path} HTTP/1.1\r\nHost: docker\r\nConnection: close\r\n\r\n");
         stream
             .write_all(request.as_bytes())
-            .map_err(|error| EngineError::Transport(error.to_string()))?;
+            .map_err(|error| transport(&error, self.leash))?;
         let mut raw = Vec::new();
         stream
             .read_to_end(&mut raw)
-            .map_err(|error| EngineError::Transport(error.to_string()))?;
+            .map_err(|error| transport(&error, self.leash))?;
         read_response(&raw)
+    }
+}
+
+/// A read that ran out its leash is a timeout, not a broken connection. macOS
+/// reports the timeout as `EAGAIN` (`WouldBlock`), Linux as `ETIMEDOUT`; both
+/// mean the same thing to a reader, and neither is worth the errno.
+fn transport(error: &std::io::Error, leash: Duration) -> EngineError {
+    match error.kind() {
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => EngineError::Timeout(leash),
+        _ => EngineError::Transport(error.to_string()),
     }
 }
 
@@ -338,5 +372,37 @@ mod tests {
             engine.get(CONTAINERS),
             Err(EngineError::Unavailable(_))
         ));
+    }
+
+    /// A cold engine accepts the socket and then takes its time. Before this
+    /// was a variant of its own, macOS's `EAGAIN` surfaced as "connection
+    /// failed: Resource temporarily unavailable" — a timeout reported as a
+    /// fault, with nothing for the reader to do about it.
+    #[test]
+    fn a_silent_engine_times_out_and_says_so() {
+        let path = std::env::temp_dir().join(format!(
+            "srelens-docker-silent-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).expect("bind");
+        // Accept and hold the connection open without ever answering.
+        let held = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            thread::sleep(Duration::from_millis(600));
+            drop(stream);
+        });
+
+        let engine = UnixEngine::with_timeout(path.clone(), Duration::from_millis(150));
+        match engine.get(CONTAINERS) {
+            Err(EngineError::Timeout(leash)) => assert_eq!(leash, Duration::from_millis(150)),
+            other => panic!("expected a timeout, got {other:?}"),
+        }
+        let _ = held.join();
+        let _ = std::fs::remove_file(&path);
     }
 }

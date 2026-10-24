@@ -92,7 +92,7 @@ docs/                   Installation, usage, development, and project documentat
 
 ## Install
 
-Install the unsigned CI build, or remove it again:
+Install the latest release, or remove it again:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/1tuz/AllSpace/main/scripts/install.sh | bash

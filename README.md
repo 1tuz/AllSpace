@@ -90,6 +90,25 @@ crates/
 docs/                   Installation, usage, development, and project documentation
 ```
 
+## Install
+
+Install the unsigned CI build, or remove it again:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/1tuz/AllSpace/main/scripts/install.sh | bash
+```
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/1tuz/AllSpace/main/scripts/uninstall.sh | bash
+```
+
+The installer places `~/Applications/srelens.app` on macOS Apple Silicon and
+installs the `.deb` on Linux x86_64; those are the only supported targets. The
+builds are unsigned and not notarized, and carry no updater feed. Uninstalling
+removes the application and leaves configuration and cluster credentials
+untouched. To download an asset by hand, use the
+[releases page](https://github.com/1tuz/AllSpace/releases).
+
 ## Setup
 
 Prerequisites:
@@ -125,9 +144,12 @@ standards, and instructions for adding capabilities, and the
 
 ## Status
 
-AllSpace is a prototype. CI builds unsigned desktop bundles for local testing
-from [Actions](https://github.com/1tuz/AllSpace/actions/workflows/desktop-build.yml).
-Signed releases and updater artifacts are not configured; installers from the
+AllSpace is a prototype. Tag-triggered unsigned desktop releases are published
+to this repository by
+[`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml);
+CI also builds unsigned bundles for local testing from
+[Actions](https://github.com/1tuz/AllSpace/actions/workflows/desktop-build.yml).
+Release builds are not notarized and carry no updater feed. Installers from the
 upstream project are not AllSpace releases.
 
 ## Naming

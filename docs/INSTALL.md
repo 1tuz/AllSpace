@@ -1,21 +1,35 @@
 # Installing AllSpace
 
-AllSpace is a prototype. The repository builds unsigned desktop bundles for
-macOS Apple Silicon and Linux x86_64 in
-[GitHub Actions](https://github.com/1tuz/AllSpace/actions/workflows/desktop-build.yml).
-Signed releases and an updater feed are not configured.
+AllSpace is a prototype. Tag-triggered, unsigned desktop releases for macOS
+Apple Silicon and Linux x86_64 are published on the
+[releases page](https://github.com/1tuz/AllSpace/releases). They are not
+notarized and carry no updater feed.
 
-## Download a CI build
+## Install a release
 
-1. Open a successful **Desktop builds** run for `main`.
-2. Download the artifact for your platform (GitHub sign-in is required):
-   - `srelens-desktop-macos-arm64` — app ZIP and DMG.
-   - `srelens-desktop-linux-x86_64` — DEB and AppImage.
-3. Extract the artifact and use the package appropriate to your platform.
+```sh
+curl -fsSL https://raw.githubusercontent.com/1tuz/AllSpace/main/scripts/install.sh | bash
+```
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/1tuz/AllSpace/main/scripts/uninstall.sh | bash
+```
+
+The first command installs the release for the current machine; the second
+removes the installed application.
+
+### Manual download
+
+Take the asset for your platform from the
+[latest release](https://github.com/1tuz/AllSpace/releases/latest):
+
+- `srelens_<ver>_aarch64.dmg` — macOS Apple Silicon
+- `srelens_<ver>_amd64.deb` — Debian/Ubuntu x86_64
+- `srelens_<ver>_amd64.AppImage` — portable Linux x86_64
 
 The artifact, executable, and bundle names retain upstream identifiers. These
-are AllSpace development builds; packages from the upstream repository contain
-the upstream application instead.
+are AllSpace builds; packages from the upstream repository contain the upstream
+application instead.
 
 ## Run or build from source
 

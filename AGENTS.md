@@ -1,8 +1,11 @@
 # Working in this repo
 
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
-first. They are the guide: setup, architecture, the capability registry, the
-test-driven rule, the coverage floors. This file does not repeat them.
+Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) first: it is the map —
+the three UI surfaces, the three hosts, how a click becomes a cluster call,
+which crate owns what, and where a change goes. Then
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
+for depth: setup, the capability registry, the test-driven rule, the coverage
+floors. This file does not repeat them.
 
 What is here is the short list of traps this codebase has actually sprung —
 each one a bug that shipped, passed CI, and was found by a person looking at

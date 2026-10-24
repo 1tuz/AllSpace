@@ -40,3 +40,4 @@ repomix-snapshot*.xml
 # Local editor configuration and upstream public-key archive
 /.cursor/
 /KEYS
+.obsidium/

@@ -88,6 +88,7 @@ crates/
   mcp/                  MCP server over stdio and loopback HTTP
   server/               Headless web host
 docs/                   Installation, usage, development, and project documentation
+  ARCHITECTURE.md       The map: surfaces, hosts, request path, crates, where a change goes
 ```
 
 ## Install
@@ -128,9 +129,10 @@ pnpm install
 pnpm dev
 ```
 
-See the [developer guide](docs/DEVELOPMENT.md) for architecture, testing
-standards, and instructions for adding capabilities, and the
-[user guide](docs/USAGE.md) for using the app.
+Start with the [architecture map](docs/ARCHITECTURE.md) — surfaces, hosts, the
+request path and which crate owns what. The [developer guide](docs/DEVELOPMENT.md)
+has the depth: testing standards and instructions for adding capabilities; the
+[user guide](docs/USAGE.md) covers using the app.
 
 ## Build and test
 

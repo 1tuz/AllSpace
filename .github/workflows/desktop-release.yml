@@ -178,9 +178,15 @@ jobs:
         run: |
           set -euo pipefail
           TAG="$GITHUB_REF_NAME"
-          shopt -s nullglob
-          FILES=(dist/*.dmg dist/*.deb dist/*.AppImage)
-          shopt -u nullglob
+          # download-artifact keeps the layout each upload-artifact saw. The
+          # Linux upload matches two globs under target/release/bundle, so its
+          # files arrive as deb/… and appimage/…, not flat in dist/. Collect
+          # recursively and never assume a depth.
+          FILES=()
+          while IFS= read -r -d '' file; do
+            FILES+=("$file")
+          done < <(find dist -type f \
+            \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) -print0)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "::error::no .dmg/.deb/.AppImage found in the downloaded artifacts"
             ls -lR dist
@@ -188,6 +194,15 @@ jobs:
           fi
           echo "About to upload to ${TAG} in ${GITHUB_REPOSITORY}:"
           ls -l "${FILES[@]}"
+          # Refuse to publish a release that is missing a platform: an install
+          # one-liner that resolves to a release without its asset is worse
+          # than no release at all.
+          for ext in dmg deb AppImage; do
+            if ! printf '%s\n' "${FILES[@]}" | grep -q "\.${ext}$"; then
+              echo "::error::the build produced no .${ext}; refusing to publish ${TAG}"
+              exit 1
+            fi
+          done
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             # Re-run of a partially published release: replace the assets in
             # place instead of failing on an existing tag.

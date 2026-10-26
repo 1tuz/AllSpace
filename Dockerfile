@@ -32,7 +32,7 @@ COPY apps/desktop apps/desktop
 RUN pnpm --filter @srelens/desktop build
 
 # ---- Stage 2: build the headless server binary ------------------------------
-FROM rust:1-slim-bookworm@sha256:ebd900bae66fd508b466cef82d64a83a5fb34682e4c8b2797a42908bddc95a57 AS backend
+FROM rust:1-slim-bookworm@sha256:86234e857a413004348b471d11a4ebe1aa92d2eae2b6b143cac68fd1ac3c48be AS backend
 WORKDIR /src
 # Only C toolchain + perl are needed (no GTK/webkit — this binary isn't Tauri).
 RUN apt-get update && apt-get install -y --no-install-recommends \
